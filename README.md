@@ -38,7 +38,7 @@
 ## Разработка
 
 ```
-node --test tests/     # тесты генераторов заданий
+node --test tests/tasks.test.mjs  # тесты генераторов заданий
 npx http-server .      # локальный запуск
 ```
 
