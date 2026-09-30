@@ -1,5 +1,5 @@
 const CACHE = 'cosmomath-v1';
-const ASSETS = ['./', './index.html', './css/style.css', './js/tasks.js', './js/app.js', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png'];
+const ASSETS = ['./', './index.html', './css/style.css', './js/tasks.js', './js/app.js', './manifest.webmanifest', './icons/icon.svg'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
 });
