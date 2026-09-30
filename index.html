@@ -28,6 +28,23 @@
     <button class="big-btn primary" id="btn-start">🚀 Полетели!</button>
   </section>
 
+  <!-- ИНТРО ПЛАНЕТЫ -->
+  <section id="intro" class="screen">
+    <header class="top">
+      <button class="icon-btn" id="btn-intro-back" aria-label="Назад">⬅️</button>
+      <span class="spacer" style="flex:1"></span>
+    </header>
+    <div class="intro-card">
+      <div class="intro-planet" id="intro-planet">🌙</div>
+      <h2 id="intro-title">Луна</h2>
+      <div class="mascot intro-mascot">
+        <span class="face">👽</span>
+        <div class="bubble"><div class="prompt small" id="intro-story"></div></div>
+      </div>
+      <button class="big-btn primary" id="btn-go">Поехали! 🚀</button>
+    </div>
+  </section>
+
   <!-- ЭКРАН ЗАДАНИЯ -->
   <section id="game" class="screen">
     <header class="top">
@@ -36,10 +53,12 @@
       <div class="pill" id="game-stars">⭐ 0</div>
     </header>
     <div class="task">
-      <div class="prompt-row">
-        <div class="prompt" id="prompt"></div>
+      <div class="mascot">
+        <span class="face" id="face">👽</span>
+        <div class="bubble"><div class="scene" id="scene"></div><div class="prompt" id="prompt"></div></div>
         <button class="icon-btn speak" id="btn-speak" aria-label="Прочитать вслух">🔊</button>
       </div>
+      <div class="combo" id="combo" hidden></div>
       <div class="stage" id="stage"></div>
       <div class="hint" id="hint" hidden></div>
     </div>
