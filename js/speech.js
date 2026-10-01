@@ -193,16 +193,16 @@
       retryTimer = setTimeout(() => {
         retryTimer = null;
         if (u !== current || started.v) return;
-        let busy = false;
-        try { busy = !!synth.speaking; } catch (e) { busy = false; }
-        if (busy) return;
+        // onstart не пришёл: Android может держать speaking=true на «проглоченной» фразе — всё равно повторяем
         diag.retries++; diag.lastEvent = 'retry';
         let u2;
         try { synth.cancel(); u2 = makeUtter(Utter, text, started); } catch (e) { finish(u); return; }
         current = u2;
         clearWatchdog();
         watchdog = setTimeout(() => finish(u2), text.length * WATCHDOG_PER_CHAR_MS + WATCHDOG_BASE_MS);
-        try { synth.speak(u2); } catch (e) { diag.lastError = 'speak2:' + (e && e.message); finish(u2); }
+        try { synth.speak(u2); } catch (e) { diag.lastError = 'speak2:' + (e && e.message); finish(u2); return; }
+        // если и повтор не стартовал — не держим очередь, идём дальше
+        retryTimer = setTimeout(() => { retryTimer = null; if (u2 === current && !started.v) { diag.lastEvent = 'skip'; try { synth.cancel(); } catch (e) { /* ignore */ } finish(u2); } }, RETRY_AFTER_MS * 2);
       }, RETRY_AFTER_MS);
     }
 
