@@ -36,7 +36,6 @@ body {
     radial-gradient(1px 1px at 65% 80%, #fff 50%, transparent 51%),
     radial-gradient(1px 1px at 5% 50%, #fff 50%, transparent 51%);
   opacity: .7;
-  animation: twinkle 4s ease-in-out infinite alternate;
 }
 @keyframes twinkle { from { opacity: .45 } to { opacity: .85 } }
 
@@ -88,7 +87,7 @@ body {
   gap: 2px; font-size: 44px; position: relative; border: 3px solid transparent; cursor: pointer;
 }
 .planet.locked { opacity: .35; filter: grayscale(1); }
-.planet.current { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(255,210,63,.25); animation: pulse 1.6s infinite; }
+.planet.current { border-color: var(--accent); box-shadow: 0 0 0 5px rgba(255,210,63,.28); }
 .planet .pname { font-size: 13px; color: var(--muted); font-weight: 700; }
 .planet .pstars { font-size: 14px; letter-spacing: -2px; }
 .planet .rocket { position: absolute; top: -10px; right: -6px; font-size: 30px; transform: rotate(-20deg); animation: hover 1.2s ease-in-out infinite alternate; }
@@ -344,7 +343,7 @@ body {
 .between .n { font-size: clamp(44px, 14vw, 70px); }
 .between .lt { font-size: 36px; color: var(--muted); }
 .between .q { font-size: clamp(44px, 14vw, 70px); color: var(--accent); background: rgba(255,210,63,.15); border-radius: 18px; padding: 0 14px; }
-.ear { width: 120px; height: 120px; border-radius: 50%; border: 0; background: radial-gradient(circle at 35% 30%, #7ee0ff, var(--accent2) 60%, #1b8fb5); font-size: 60px; box-shadow: 0 8px 0 #0f5f7a; cursor: pointer; animation: pulse-ear 1.4s infinite; }
+.ear { width: 120px; height: 120px; border-radius: 50%; border: 0; background: radial-gradient(circle at 35% 30%, #7ee0ff, var(--accent2) 60%, #1b8fb5); font-size: 60px; box-shadow: 0 8px 0 #0f5f7a, 0 0 0 10px rgba(76,201,240,.25); cursor: pointer; }
 .ear:active { transform: translateY(5px); box-shadow: 0 3px 0 #0f5f7a; }
 @keyframes pulse-ear { 0%,100% { box-shadow: 0 8px 0 #0f5f7a, 0 0 0 0 rgba(76,201,240,.5) } 50% { box-shadow: 0 8px 0 #0f5f7a, 0 0 0 18px rgba(76,201,240,0) } }
 .listen-word { margin-top: 10px; font-size: 30px; font-weight: 900; color: var(--accent); letter-spacing: 1px; }
@@ -362,8 +361,8 @@ body {
 /* ===== v3: анимации ===== */
 :root { --tint: #2b2f6b; }
 .tint { position: fixed; inset: 0; z-index: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 110%, var(--tint) 0%, transparent 60%); opacity: .7; transition: background 1s; }
-.stars { animation: twinkle 4s ease-in-out infinite alternate, drift 90s linear infinite; background-size: 100% 100%; }
-.stars.far { opacity: .35; transform: scale(1.6); animation: drift 160s linear infinite reverse; }
+.stars { background-size: 100% 100%; }
+.stars.far { opacity: .35; transform: scale(1.6); }
 @keyframes drift { from { background-position: 0 0 } to { background-position: 0 100vh } }
 .comet { position: fixed; left: -60px; font-size: 34px; z-index: 0; pointer-events: none; transform: rotate(-20deg); animation: comet 2.5s linear forwards; }
 @keyframes comet { from { transform: translateX(0) translateY(0) rotate(200deg) } to { transform: translateX(130vw) translateY(40vh) rotate(200deg) } }
@@ -390,8 +389,7 @@ body {
 @keyframes bump { 30% { transform: scale(1.25); background: rgba(255,210,63,.4) } }
 .face.talking { animation: talk .35s ease-in-out infinite alternate; }
 @keyframes talk { from { transform: translateY(0) rotate(-3deg) } to { transform: translateY(-5px) rotate(3deg) } }
-.planet .pe { display: inline-block; animation: hover 2.2s ease-in-out infinite alternate; animation-delay: calc(var(--i, 0) * 300ms); }
-.planet.locked .pe { animation: none; }
+.planet.current .pe { display: inline-block; animation: hover 2.2s ease-in-out infinite alternate; }
 
 .launch { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: radial-gradient(circle, #1d2a5e, #05081a); }
 .launch[hidden] { display: none; }
@@ -426,3 +424,8 @@ body {
 .opt.signbtn { display: flex; flex-direction: column; line-height: 1; }
 .opt.signbtn small { font-size: 13px; font-weight: 700; opacity: .85; margin-top: 4px; }
 .diag { font-size: 12px; color: var(--muted); white-space: pre-wrap; margin: 8px 0 0; font-family: ui-monospace, monospace; user-select: text; }
+
+/* экономия батареи: бесконечные анимации только на маленьких элементах, системная настройка уважается */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
