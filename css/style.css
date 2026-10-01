@@ -36,6 +36,7 @@ body {
     radial-gradient(1px 1px at 65% 80%, #fff 50%, transparent 51%),
     radial-gradient(1px 1px at 5% 50%, #fff 50%, transparent 51%);
   opacity: .7;
+  animation: twinkle 4s ease-in-out infinite alternate; /* opacity: только композитор, замер ≈0 мс/с */
 }
 @keyframes twinkle { from { opacity: .45 } to { opacity: .85 } }
 
