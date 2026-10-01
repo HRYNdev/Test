@@ -412,3 +412,16 @@ body {
 .rank-big { font-size: 64px; animation: pop .8s; }
 .rank-name { font-weight: 900; color: var(--accent2); font-size: 20px; }
 .options.bars .opt { max-height: 84px; min-height: 64px; }
+
+.options.row .opt.rowitem { min-width: 0; font-size: 28px; }
+.story-nums { display: flex; gap: 18px; justify-content: center; }
+.story-num { display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,.08); border-radius: 16px; padding: 10px 16px; }
+.story-num b { color: var(--accent2); font-size: 16px; }
+.story-num span { font-size: 40px; font-weight: 900; }
+.story-num i { font-style: normal; font-size: 28px; }
+.srocket.r0-on, .srocket.r1-on { animation: bounce .6s; }
+.srocket b { display: none; }
+.bar-body.longest { box-shadow: 0 0 0 4px var(--ok); }
+.bar-body.shortest { box-shadow: 0 0 0 4px var(--accent); }
+.opt.signbtn { display: flex; flex-direction: column; line-height: 1; }
+.opt.signbtn small { font-size: 13px; font-weight: 700; opacity: .85; margin-top: 4px; }

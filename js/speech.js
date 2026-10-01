@@ -189,6 +189,8 @@
       }
     }
 
+    function clearPending() { queue = []; }
+
     function stop() {
       clearStartTimer();
       clearWatchdog();
@@ -236,7 +238,7 @@
     function voiceName() { return voice ? (voice.name || null) : null; }
 
     const api = {
-      init, say, stop, setEnabled, isEnabled, onSpeaking, voiceName, available,
+      init, say, stop, clearPending, setEnabled, isEnabled, onSpeaking, voiceName, available,
       isSpeaking: () => speaking,
       pending: () => queue.length + (current ? 1 : 0),
       splitText,

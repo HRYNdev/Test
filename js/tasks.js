@@ -57,12 +57,12 @@
   const HEROES = [{ n: 'Зум', g: 'Зума', v: 'подарил' }, { n: 'Бип', g: 'Бипа', v: 'подарил' }, { n: 'Ника', g: 'Ники', v: 'подарила' }, { n: 'Тим', g: 'Тима', v: 'подарил' }, { n: 'Кроха', g: 'Крохи', v: 'подарила' }];
 
   const SHAPES = [
-    { id: 'circle',   name: 'круг',        acc: 'круг',        part: 'круглый иллюминатор' },
-    { id: 'square',   name: 'квадрат',     acc: 'квадрат',     part: 'квадратный люк' },
-    { id: 'triangle', name: 'треугольник', acc: 'треугольник', part: 'треугольное крыло' },
-    { id: 'star',     name: 'звезда',      acc: 'звезду',      part: 'звёздный фонарик' },
-    { id: 'heart',    name: 'сердечко',    acc: 'сердечко',    part: 'сердечко-датчик' },
-    { id: 'diamond',  name: 'ромб',        acc: 'ромб',        part: 'ромбик-антенна' },
+    { id: 'circle',   name: 'круг',        acc: 'круг',        pl: 'круги',        part: 'круглый иллюминатор' },
+    { id: 'square',   name: 'квадрат',     acc: 'квадрат',     pl: 'квадраты',     part: 'квадратный люк' },
+    { id: 'triangle', name: 'треугольник', acc: 'треугольник', pl: 'треугольники', part: 'треугольное крыло' },
+    { id: 'star',     name: 'звезда',      acc: 'звезду',      pl: 'звёзды',       part: 'звёздный фонарик' },
+    { id: 'heart',    name: 'сердечко',    acc: 'сердечко',    pl: 'сердечки',     part: 'сердечко-датчик' },
+    { id: 'diamond',  name: 'ромб',        acc: 'ромб',        pl: 'ромбы',        part: 'ромбик-антенна' },
   ];
   const CORNER_SHAPES = [
     { id: 'triangle', name: 'треугольник', corners: 3 }, { id: 'square', name: 'квадрат', corners: 4 },
@@ -125,7 +125,7 @@
       skill: 'count', kind: 'choice', scene: 'porthole',
       prompt: obj.q, say: obj.q,
       display: { type: 'objects', groups: [{ emoji: obj.e, n }] },
-      options: numberOptions(n, optCount(d), Math.max(0, min - 2), max + 1),
+      options: numberOptions(n, optCount(d), Math.max(1, min - 2), max + 1),
       answer: n,
       hint: { type: 'number-objects', say: 'Считай по порядку и показывай пальцем: раз, два, три…' },
       explain: `${n} ${plural(n, obj)}`,
@@ -133,10 +133,12 @@
   }
 
   function genAdd(d) {
-    const maxSum = lerp(5, 20, d);
-    let a, b;
-    if (maxSum > 10 && rng() < 0.6) { a = rint(3, 10); b = rint(2, Math.min(10, maxSum - a)); }
-    else { a = rint(1, Math.min(9, maxSum - 1)); b = rint(1, Math.min(9, maxSum - a)); }
+    const maxSum = lerp(5, 20, d), minSum = lerp(2, 11, d);
+    let a, b, guard = 0;
+    do {
+      if (maxSum > 10 && rng() < 0.6) { a = rint(3, 10); b = rint(2, Math.min(10, maxSum - a)); }
+      else { a = rint(1, Math.min(9, maxSum - 1)); b = rint(1, Math.min(9, maxSum - a)); }
+    } while (a + b < minSum && guard++ < 20);
     const obj = pick(OBJECTS);
     const answer = a + b;
     return {
@@ -147,7 +149,7 @@
       options: numberOptions(answer, optCount(d), 0, maxSum + 2),
       answer,
       hint: { type: 'show-objects', say: `Вот ${a} и ещё ${b}. Посчитай все вместе.` },
-      explain: `${a} + ${b} = ${answer}`,
+      explain: `${a} + ${b} = ${answer}`, explainSay: `${a} плюс ${b} равно ${answer}`,
     };
   }
 
@@ -155,13 +157,14 @@
     const max = lerp(5, 20, d);
     let a, b;
     if (max > 10 && rng() < 0.6) { a = rint(11, max); b = rint(2, 10); }
-    else { a = rint(2, Math.min(10, max)); b = rint(1, a); }
+    else { a = rint(lerp(2, 6, d), Math.min(10, max)); b = rint(1, a); }
     const obj = pick(OBJECTS);
     const answer = a - b;
     return {
       skill: 'sub', kind: 'choice', scene: 'flyaway',
       prompt: `${a} − ${b} = ?`,
-      say: `На планете было ${a} ${plural(a, obj)}. ${b} улетели. Сколько осталось? ${a} минус ${b}.`,
+      say: `На планете было ${a} ${plural(a, obj)}. ${b} из них ${b === 1 ? 'улетает' : 'улетают'}. Сколько осталось? ${a} минус ${b}.`,
+      explainSay: `${a} минус ${b} равно ${answer}`,
       display: { type: 'expr', text: `${a} − ${b} = ?`, groups: [{ emoji: obj.e, n: a, crossed: b }], showObjects: d < 0.4 },
       options: numberOptions(answer, optCount(d), 0, max),
       answer,
@@ -182,8 +185,8 @@
       display: { type: 'fuel', target, have },
       options: numberOptions(answer, optCount(d), 1, target),
       answer,
-      hint: { type: 'fuel-count', say: `Считай пустые клеточки от ${have + 1} до ${target}.` },
-      explain: `${have} + ${answer} = ${target}`,
+      hint: { type: 'fuel-count', say: answer === 1 ? 'Осталась одна пустая клеточка.' : `Считай пустые клеточки: ${have + 1}, ${have + 2}…` },
+      explain: `${have} + ${answer} = ${target}`, explainSay: `долить ${answer}`,
     };
   }
 
@@ -194,36 +197,36 @@
     const h1 = pick(HEROES), h2 = pick(HEROES.filter(h => h !== h1));
     const H1 = h1.g, H2 = h2.g;
     const kind = pick(['add', 'sub', 'more', 'less']);
-    let a, b, answer, text, groups;
+    let a, b, answer, text, groups, q, hintSay, ex;
     if (kind === 'add') {
       a = rint(1, Math.max(1, max - 2)); b = rint(1, Math.max(1, max - a));
       answer = a + b;
-      text = `У ${H1} ${a} ${plural(a, obj)}, у ${H2} ${b}. Сколько у них вместе?`;
+      text = `У ${H1} ${a} ${plural(a, obj)}, у ${H2} ${b}. Сколько у них вместе?`; q = 'Сколько у них вместе?'; hintSay = `Посчитай всё: ${a} и ещё ${b}.`; ex = `${a} + ${b} = ${answer}`;
       groups = [{ emoji: obj.e, n: a, label: h1.n }, { emoji: obj.e, n: b, label: h2.n }];
     } else if (kind === 'sub') {
       a = rint(2, max); b = rint(1, a);
       answer = a - b;
-      text = `У ${H1} было ${a} ${plural(a, obj)}. ${b} ${h1.n} ${h1.v} другу. Сколько осталось?`;
+      text = `У ${H1} было ${a} ${plural(a, obj)}. ${h1.n} ${h1.v} другу ${b}. Сколько осталось?`; q = 'Сколько осталось?'; hintSay = `Было ${a}. Убери ${b}.`; ex = `${a} − ${b} = ${answer}`;
       groups = [{ emoji: obj.e, n: a, crossed: b, label: h1.n }];
     } else if (kind === 'more') {
       a = rint(1, Math.max(1, max - 3)); b = rint(1, Math.min(5, max - a));
       answer = a + b;
-      text = `У ${H1} ${a} ${plural(a, obj)}, а у ${H2} на ${b} больше. Сколько у ${H2}?`;
+      text = `У ${H1} ${a} ${plural(a, obj)}, а у ${H2} на ${b} больше. Сколько у ${H2}?`; q = `Сколько у ${H2}?`; hintSay = `У ${H2} столько же и ещё ${b}. Досчитай.`; ex = `${a} + ${b} = ${answer}`;
       groups = [{ emoji: obj.e, n: a, label: h1.n }, { emoji: obj.e, n: a, extra: b, label: h2.n }];
     } else {
       b = rint(1, 5); a = rint(b + 1, Math.max(b + 1, max));
       answer = a - b;
-      text = `У ${H1} ${a} ${plural(a, obj)}, а у ${H2} на ${b} меньше. Сколько у ${H2}?`;
+      text = `У ${H1} ${a} ${plural(a, obj)}, а у ${H2} на ${b} меньше. Сколько у ${H2}?`; q = `Сколько у ${H2}?`; hintSay = `У ${H2} столько же, но ${b} убери.`; ex = `${a} − ${b} = ${answer}`;
       groups = [{ emoji: obj.e, n: a, label: h1.n }, { emoji: obj.e, n: a, crossed: b, label: h2.n }];
     }
     return {
       skill: 'story', kind: 'choice', scene: 'story',
-      prompt: text, say: text,
+      prompt: q, say: text,
       display: { type: 'story', groups, showObjects: d < 0.5 },
-      options: numberOptions(answer, optCount(d), 0, max + 5),
+      options: numberOptions(answer, optCount(d), 0, Math.min(20, max + 5)),
       answer,
-      hint: { type: 'show-objects', say: 'Смотри на картинку и считай.' },
-      explain: `${answer}`,
+      hint: { type: 'show-objects', say: hintSay },
+      explain: ex, explainSay: ex.replace('+', 'плюс').replace('−', 'минус').replace('=', 'равно'),
     };
   }
 
@@ -236,27 +239,28 @@
       const answer = more ? (a > b ? 0 : 1) : (a < b ? 0 : 1);
       return {
         skill: 'compare', kind: 'choice', scene: 'planets',
-        prompt: more ? 'На какой планете больше?' : 'На какой планете меньше?',
+        prompt: more ? `Где больше ${obj.many}?` : `Где меньше ${obj.many}?`,
         say: more ? `На какой планете ${obj.many} больше? Нажми на неё.` : `На какой планете ${obj.many} меньше? Нажми на неё.`,
         display: { type: 'pair-objects', groups: [{ emoji: obj.e, n: a }, { emoji: obj.e, n: b }] },
         options: [{ label: 'left', value: 0 }, { label: 'right', value: 1 }],
         answer,
-        hint: { type: 'pair-counts', say: `Слева ${a}, справа ${b}.` },
-        explain: `${Math.max(a, b)} больше, чем ${Math.min(a, b)}`,
+        hint: { type: 'pair-counts', say: 'Посчитай на каждой планете и сравни.' },
+        explain: more ? `${Math.max(a, b)} больше, чем ${Math.min(a, b)}` : `${Math.min(a, b)} меньше, чем ${Math.max(a, b)}`,
       };
     }
     const max = lerp(10, 20, d);
-    let a = rint(0, max), b = rint(0, max);
+    let a = rint(1, max), b = rint(1, max);
     if (rng() < 0.2) b = a;
     const answer = a > b ? '>' : a < b ? '<' : '=';
+    const words = d < 0.6;
     return {
       skill: 'compare', kind: 'choice', scene: 'scales',
-      prompt: 'Какой знак?', say: `Космические весы. Какое число больше: ${a} или ${b}? Выбери знак.`,
+      prompt: 'Какой знак?', say: a === b ? `Космические весы. ${a} и ${b}. Числа одинаковые или разные? Выбери знак.` : `Космические весы. Какое число больше: ${a} или ${b}? Выбери знак.`,
       display: { type: 'compare-numbers', a, b },
-      options: [{ label: '>', value: '>' }, { label: '=', value: '=' }, { label: '<', value: '<' }],
+      options: [{ label: '>', value: '>', word: words ? 'больше' : '' }, { label: '=', value: '=', word: words ? 'равно' : '' }, { label: '<', value: '<', word: words ? 'меньше' : '' }],
       answer,
-      hint: { type: 'compare-objects', say: 'Клювик открыт к большему числу. Смотри, где кружков больше.' },
-      explain: `${a} ${answer} ${b}`,
+      hint: { type: 'compare-objects', say: a === b ? 'Кружков поровну. Какой знак это показывает?' : 'Клювик открыт к большему числу. Смотри, где кружков больше.' },
+      explain: `${a} ${answer} ${b}`, explainSay: a === b ? `${a} равно ${b}` : a > b ? `${a} больше, чем ${b}` : `${a} меньше, чем ${b}`,
     };
   }
 
@@ -272,11 +276,11 @@
     const lo = Math.max(0, Math.min(...seq) - 2), hi = Math.max(...seq) + 2;
     return {
       skill: 'missing', kind: 'choice', scene: 'radar',
-      prompt: 'Какой сигнал пропал?', say: 'Радар потерял один сигнал. Какое число пропущено?',
+      prompt: pick(['Какой сигнал пропал?', 'Какое число потерялось?', 'Что стоит на месте «?»']), say: 'Радар потерял один сигнал. Какое число пропущено?',
       display: { type: 'sequence', seq, idx },
       options: numberOptions(answer, optCount(d), lo, hi),
       answer,
-      hint: { type: 'seq-neighbors', say: `После ${seq[idx - 1]} и перед ${seq[idx + 1]}. Какое число между ними?` },
+      hint: { type: 'seq-neighbors', say: step === 2 ? `Числа прыгают через одно. После ${seq[idx - 1]} прыгни ещё на два.` : step === -1 ? `Числа идут назад: после ${seq[idx - 1]} будет на один меньше.` : `После ${seq[idx - 1]} и перед ${seq[idx + 1]}. Какое число между ними?` },
       explain: seq.join(', '),
     };
   }
@@ -303,8 +307,8 @@
 
   function genNeighbors(d) {
     const max = lerp(9, 20, d);
-    const n = rint(1, max);
     const after = d < 0.5 ? true : rng() < 0.5;
+    const n = rint(lerp(1, 8, d), after ? max - 1 : max);
     if (!after && n === 1) return genNeighbors(d);
     const answer = after ? n + 1 : n - 1;
     return {
@@ -315,7 +319,7 @@
       options: numberOptions(answer, optCount(d), Math.max(0, n - 3), n + 3),
       answer,
       hint: { type: 'neighbors-line', say: after ? `Считай дальше: ${n}, а потом…` : `Считай назад: ${n}, а перед ним…` },
-      explain: after ? `${n}, ${answer}` : `${answer}, ${n}`,
+      explain: after ? `${n}, ${answer}` : `${answer}, ${n}`, explainSay: after ? `после ${n} идёт ${answer}` : `перед ${n} идёт ${answer}`,
     };
   }
 
@@ -325,7 +329,7 @@
     const labelEvery = d < 0.3 ? 1 : d < 0.7 ? 5 : 10;
     return {
       skill: 'numline', kind: 'choice', scene: 'numline',
-      prompt: 'На каком числе ракета?', say: 'Ракета приземлилась на числовую прямую. На каком числе она стоит?',
+      prompt: pick(['На каком числе ракета?', 'Куда села ракета?', 'Какое число под ракетой?']), say: 'Ракета приземлилась на числовую прямую. На каком числе она стоит?',
       display: { type: 'numline', max, n, labelEvery },
       options: numberOptions(n, optCount(d), 0, max),
       answer: n,
@@ -341,10 +345,10 @@
       const opts = shuffle([target, ...others]).map(s => ({ label: s.id, value: s.id, shape: s.id, color: pick(COLORS).id }));
       return {
         skill: 'shapes', kind: 'choice', scene: 'repair',
-        prompt: `Нужна деталь: ${target.name}`, say: `Ремонт ракеты! Нужен ${target.part}. Найди ${target.acc}.`,
+        prompt: `Нужна деталь: ${target.name}`, say: `Ремонт ракеты! Не хватает детали: ${target.part}. Найди ${target.acc}.`,
         display: { type: 'none' },
         options: opts, answer: target.id,
-        hint: { type: 'shape-names', say: `Подписи помогут. Нужен ${target.name}.` },
+        hint: { type: 'shape-names', say: `Подписи помогут. Ищи слово «${target.name}».` },
         explain: `Это ${target.name}`,
       };
     }
@@ -378,7 +382,7 @@
       display: { type: 'shapes', items: shuffle(items), target: target.id },
       options: numberOptions(n, 3, 1, total),
       answer: n,
-      hint: { type: 'shape-highlight', say: `Считай только ${target.acc}. Остальные не считаем.` },
+      hint: { type: 'shape-highlight', say: `Считай только ${target.pl}. Остальные не считаем.` },
       explain: `${n}`,
     };
   }
@@ -398,11 +402,11 @@
     const opts = shuffle([...distinct, ...distractors]).map(e => ({ label: e, value: e, emoji: true }));
     return {
       skill: 'pattern', kind: 'choice', scene: 'runway',
-      prompt: 'Какой огонёк дальше?', say: 'Огни взлётной полосы мигают по порядку. Какой огонёк должен быть дальше?',
+      prompt: pick(['Какой огонёк дальше?', 'Что мигнёт следующим?', 'Продолжи узор']), say: 'Огни взлётной полосы мигают по порядку. Какой огонёк должен быть дальше?',
       display: { type: 'sequence-emoji', seq, unitLen: unit.length },
       options: opts, answer,
       hint: { type: 'pattern-groups', say: 'Узор повторяется. Смотри, как он начинается.' },
-      explain: unit.join(' ') + ' …',
+      explain: unit.join(' ') + ' …', explainSay: 'смотри на узор',
     };
   }
 
@@ -424,17 +428,17 @@
     }
     return {
       skill: 'clock', kind: 'choice', scene: 'clock',
-      prompt: 'Когда старт ракеты?', say: 'Посмотри на космические часы. Который час?',
+      prompt: pick(['Когда старт ракеты?', 'Который час?', 'Что показывают часы?']), say: 'Посмотри на космические часы. Который час?',
       display: { type: 'clock', h, m },
       options: shuffle([...set]).map(v => ({ label: v, value: v })), answer,
-      hint: { type: 'clock-digits', say: m === 0 ? 'Короткая стрелка показывает часы. Длинная на двенадцати — значит ровно.' : 'Короткая стрелка — часы, длинная — минуты.' },
+      hint: { type: 'clock-digits', say: m === 0 ? 'Короткая стрелка показывает часы. Длинная на двенадцати — значит ровно.' : m === 30 ? 'Длинная стрелка на шести — это половина, тридцать минут.' : 'Длинная на трёх — пятнадцать минут, на девяти — сорок пять.' },
       explain: timeName(h, m),
     };
   }
 
   const SHOP = [
-    { e: '🍭', name: 'космо-леденец' }, { e: '🧃', name: 'звёздный сок' }, { e: '🔭', name: 'телескоп' },
-    { e: '🧸', name: 'мишка-астронавт' }, { e: '🎈', name: 'шарик-планета' }, { e: '🍪', name: 'лунная печенька' },
+    { e: '🍭', name: 'космо-леденец', acc: 'космо-леденец' }, { e: '🧃', name: 'звёздный сок', acc: 'звёздный сок' }, { e: '🔭', name: 'телескоп', acc: 'телескоп' },
+    { e: '🧸', name: 'мишка-астронавт', acc: 'мишку-астронавта' }, { e: '🎈', name: 'шарик-планета', acc: 'шарик-планету' }, { e: '🍪', name: 'лунная печенька', acc: 'лунную печеньку' },
   ];
   function genMoney(d) {
     const target = d < 0.3 ? rint(2, 5) : d < 0.7 ? rint(4, 10) : rint(8, 20);
@@ -446,45 +450,46 @@
     const item = pick(SHOP);
     return {
       skill: 'money', kind: 'choice', scene: 'shop',
-      prompt: 'Сколько монет в кошельке?', say: `Космо-магазин! Хочешь купить ${item.name}. Посчитай, сколько всего монет в кошельке.`,
+      prompt: pick(['Сколько всего денег?', 'Сколько стоят монетки вместе?', 'Сколько в кошельке?']), say: `Космо-магазин! Хочешь купить ${item.acc}. Сложи числа на монетках. Сколько всего денег в кошельке?`,
       display: { type: 'coins', coins: shuffle(coins), item },
-      options: numberOptions(answer, optCount(d), 1, d < 0.3 ? 6 : d < 0.7 ? 12 : 22),
+      options: numberOptions(answer, optCount(d), 1, d < 0.3 ? 6 : d < 0.7 ? 12 : 20),
       answer,
       hint: { type: 'coins-sum', say: 'Складывай монетки по одной. Число на монетке — сколько она стоит.' },
-      explain: coins.join(' + ') + ' = ' + answer,
+      explain: coins.length > 1 ? coins.join(' + ') + ' = ' + answer : `${answer}`, explainSay: `${answer}`,
     };
   }
 
 
   // Удвоение: a + a
   function genDouble(d) {
-    const a = rint(1, lerp(4, 10, d));
+    const a = rint(lerp(1, 5, d), lerp(4, 10, d));
     const obj = pick(OBJECTS);
     return {
       skill: 'double', kind: 'choice', scene: 'mirror',
       prompt: `${a} + ${a} = ?`,
-      say: `Зеркальная планета всё удваивает! Было ${a} ${plural(a, obj)}, и в зеркале ещё столько же. Сколько всего? ${a} плюс ${a}.`,
+      say: `Зеркальная планета всё удваивает! Смотри: ${a} ${plural(a, obj)}, и в зеркале ещё столько же. Сколько всего? ${a} плюс ${a}.`,
       display: { type: 'expr', text: `${a} + ${a} = ?`, groups: [{ emoji: obj.e, n: a }, { emoji: obj.e, n: a }], showObjects: d < 0.45 },
-      options: numberOptions(a * 2, optCount(d), 0, 22),
+      options: numberOptions(a * 2, optCount(d), 0, 20),
       answer: a * 2,
-      hint: { type: 'show-objects', say: `Посчитай все ${obj.many}: слева ${a} и справа ${a}.` },
+      hint: { type: 'show-objects', say: `Посчитай всё вместе: слева ${a} и справа ${a}.` },
+      explainSay: `${a} плюс ${a} равно ${a * 2}`,
       explain: `${a} + ${a} = ${a * 2}`,
     };
   }
 
   // Поровну на две ракеты: n / 2
   function genHalf(d) {
-    const n = 2 * rint(1, lerp(3, 10, d));
+    const n = 2 * rint(lerp(1, 4, d), lerp(3, 10, d));
     const obj = pick(OBJECTS.filter(o => o.e !== '🚀'));
     return {
       skill: 'half', kind: 'choice', scene: 'share',
-      prompt: `${n} ${plural(n, obj)} на две ракеты. По сколько?`,
+      prompt: `${n} ${plural(n, obj)} на две ракеты. Сколько в каждой?`,
       say: `${n} ${plural(n, obj)} надо разделить поровну на две ракеты. По сколько в каждой?`,
       display: { type: 'share', n, emoji: obj.e },
-      options: numberOptions(n / 2, optCount(d), 1, n),
+      options: numberOptions(n / 2, optCount(d), 1, n + 2),
       answer: n / 2,
-      hint: { type: 'share-pairs', say: 'Раздавай по одному: одну в первую ракету, одну во вторую. И так до конца.' },
-      explain: `${n} = ${n / 2} + ${n / 2}`,
+      hint: { type: 'share-pairs', say: 'Клади по очереди: сначала в первую ракету, потом во вторую. И так до конца. Потом посчитай одну ракету.' },
+      explain: `${n} = ${n / 2} + ${n / 2}`, explainSay: `по ${n / 2} в каждой`,
     };
   }
 
@@ -496,20 +501,20 @@
     const h1 = pick(HEROES), h2 = pick(HEROES.filter(h => h !== h1));
     return {
       skill: 'diff', kind: 'choice', scene: 'scales',
-      prompt: `На сколько больше?`,
+      prompt: pick(['На сколько больше?', `На сколько у ${h1.g} больше?`, `Сколько лишних у ${h1.g}?`]),
       say: `У ${h1.g} ${a} ${plural(a, obj)}, у ${h2.g} ${b}. На сколько у ${h1.g} больше?`,
       display: { type: 'diff', groups: [{ emoji: obj.e, n: a, label: h1.n }, { emoji: obj.e, n: b, label: h2.n }] },
       options: numberOptions(a - b, optCount(d), 1, Math.max(3, a - b + 3)),
       answer: a - b,
       hint: { type: 'diff-highlight', say: `Поставь их парами. Те, кому пары не хватило, и есть ответ.` },
-      explain: `${a} − ${b} = ${a - b}`,
+      explain: `${a} − ${b} = ${a - b}`, explainSay: `на ${a - b}`,
     };
   }
 
   // Три слагаемых
   function genChain(d) {
     const max = lerp(6, 20, d);
-    const a = rint(1, Math.max(1, Math.floor(max / 3))), b = rint(1, Math.max(1, Math.floor(max / 3))), c = rint(1, Math.max(1, max - a - b));
+    const a = rint(1, Math.max(1, Math.floor(max / 3))), b = rint(1, Math.max(1, Math.floor(max / 3))), c = rint(1, Math.max(1, Math.min(9, max - a - b)));
     const obj = pick(OBJECTS);
     const answer = a + b + c;
     return {
@@ -520,7 +525,7 @@
       options: numberOptions(answer, optCount(d), 1, max + 2),
       answer,
       hint: { type: 'show-objects', say: `Сначала ${a} плюс ${b} — это ${a + b}. Теперь прибавь ${c}.` },
-      explain: `${a} + ${b} + ${c} = ${answer}`,
+      explain: `${a} + ${b} + ${c} = ${answer}`, explainSay: `${a} плюс ${b} плюс ${c} равно ${answer}`,
     };
   }
 
@@ -537,7 +542,7 @@
       options: numberOptions(n, optCount(d), 10, 20),
       answer: n,
       hint: { type: 'tens-count', say: `Десять уже есть. Считай дальше: одиннадцать, двенадцать…` },
-      explain: `10 + ${x} = ${n}`,
+      explain: `10 + ${x} = ${n}`, explainSay: `десять плюс ${x} равно ${n}`,
     } : {
       skill: 'tens', kind: 'choice', scene: 'tens',
       prompt: `${n} = 10 + ?`,
@@ -546,18 +551,18 @@
       options: numberOptions(x, optCount(d), 1, 9),
       answer: x,
       hint: { type: 'tens-count', say: `Убери десяток. Сколько осталось рядом с контейнером?` },
-      explain: `${n} = 10 + ${x}`,
+      explain: `${n} = 10 + ${x}`, explainSay: `${n} это десять и ${x}`,
     };
   }
 
   // Загаданное число между
   function genBetween(d) {
     const max = lerp(8, 20, d);
-    const gap = d < 0.4 ? 1 : rint(1, 2);
-    const lo = rint(0, max - gap - 1), hi = lo + gap + 1;
-    const answer = gap === 1 ? lo + 1 : rint(lo + 1, hi - 1);
+    const gap = 1;
+    const lo = rint(lerp(0, 8, d), max - 2), hi = lo + 2;
+    const answer = lo + 1;
     const set = new Set([answer]);
-    const pool = shuffle([lo, hi, lo - 1, hi + 1, lo - 2, hi + 2].filter(v => v >= 0 && v <= 22 && v !== answer));
+    const pool = shuffle([lo, hi, lo - 1, hi + 1, lo - 2, hi + 2].filter(v => v >= 0 && v <= 20 && v !== answer));
     for (const v of pool) { if (set.size >= optCount(d)) break; set.add(v); }
     return {
       skill: 'between', kind: 'choice', scene: 'secret',
@@ -567,7 +572,7 @@
       options: shuffle([...set]).map(v => ({ label: String(v), value: v })),
       answer,
       hint: { type: 'between-line', say: `Смотри на прямую: число стоит между ${lo} и ${hi}.` },
-      explain: `${lo} < ${answer} < ${hi}`,
+      explain: `${lo} < ${answer} < ${hi}`, explainSay: `${answer}: больше ${lo} и меньше ${hi}`,
     };
   }
 
@@ -585,17 +590,17 @@
       options: Array.from({ length: k }, (_, i) => ({ label: '🚀', value: i, emoji: true, row: true })),
       answer,
       hint: { type: 'ordinal-numbers', say: `Считай ${fromRight ? 'справа' : 'слева'}: первая, вторая, третья…` },
-      explain: `${ORDINALS_F[idx].replace('ую', 'ая').replace('ью', 'ья')} ${fromRight ? 'справа' : 'слева'}`,
+      explain: `${ORDINALS_F[idx].replace('ую', 'ая').replace('ью', 'ья')} ${fromRight ? 'справа' : 'слева'}`, explainSay: `${ORDINALS_F[idx].replace('ую', 'ая').replace('ью', 'ья')} ${fromRight ? 'справа' : 'слева'}, я её подсветил`,
     };
   }
 
   // Послушай число
   function genListen(d) {
     const max = lerp(9, 20, d);
-    const n = rint(1, max);
+    const n = rint(lerp(1, 10, d), max);
     return {
       skill: 'listen', kind: 'choice', scene: 'radio',
-      prompt: `🔊 Какое число я сказал?`,
+      prompt: pick(['🔊 Какое число я сказал?', '🔊 Найди число, которое услышал', '🔊 Рация передала число. Какое?']),
       say: `Слушай внимательно! Число… ${NUM_WORDS[n]}. Найди число ${NUM_WORDS[n]}.`,
       display: { type: 'listen', n, word: NUM_WORDS[n] },
       options: numberOptions(n, 4, Math.max(0, n - 4), Math.min(20, n + 4)),
@@ -618,7 +623,7 @@
       display: { type: 'none' },
       options: lens.map((v, i) => ({ label: String(v), value: i, bar: v })),
       answer: lens.indexOf(target),
-      hint: { type: 'size-numbers', say: longest ? 'Сравни хвосты ракет: чей дальше всех?' : 'Ищи ракету, которая заканчивается раньше всех.' },
+      hint: { type: 'size-numbers', say: longest ? 'Все ракеты стартуют слева. Чей нос улетел дальше всех? Я обвёл её зелёным.' : 'Все ракеты стартуют слева. Чей нос ближе всех к старту? Я обвёл её жёлтым.' },
       explain: longest ? 'самая длинная' : 'самая короткая',
     };
   }
@@ -631,8 +636,8 @@
     for (const c of shuffle([0, 3, 4, 5, 6])) { if (opts.size >= 3) break; opts.add(c); }
     return {
       skill: 'corners', kind: 'choice', scene: 'repair',
-      prompt: 'Сколько углов у детали?',
-      say: `Это ${sh.name}. Сколько у него углов? ${sh.corners === 0 ? 'Подумай, есть ли углы у круга.' : 'Считай уголки по кругу.'}`,
+      prompt: pick(['Сколько углов у детали?', 'Посчитай уголки', 'Сколько острых уголков?']),
+      say: d < 0.6 ? `Это ${sh.name}. Сколько у него углов? ${sh.corners === 0 ? 'Подумай, есть ли углы у круга.' : 'Считай уголки по кругу.'}` : 'Посмотри на деталь. Сколько у неё углов? Считай уголки по кругу.',
       display: { type: 'corners', shape: sh.id, color: pick(COLORS).id },
       options: shuffle([...opts]).map(v => ({ label: String(v), value: v })),
       answer: sh.corners,

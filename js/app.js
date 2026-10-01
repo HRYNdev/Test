@@ -242,7 +242,7 @@
     const noStage = stage.style.display === 'none';
     opts.classList.toggle('tall', noStage);
     document.querySelector('.task').classList.toggle('collapsed', noStage);
-    speak(t.say);
+    speak(t.say, 'now');
   }
 
   // --- визуальная часть задания ---
@@ -273,7 +273,7 @@
         break;
       case 'story':
         stage.innerHTML = `<div class="expr-objs" ${d.showObjects ? '' : 'hidden'}>${groupsHTML(d.groups, { crossed: true, extra: true })}</div>` +
-          `<div class="story-hidden" ${d.showObjects ? 'hidden' : ''}>🧑‍🚀 Подумай… или нажми 🔊, чтобы послушать ещё раз</div>`;
+          `<div class="story-nums" ${d.showObjects ? 'hidden' : ''}>${d.groups.map(g => `<div class="story-num"><b>${g.label}</b><span>${g.n}${g.extra ? ' + ' + g.extra : ''}${g.crossed ? ' − ' + g.crossed : ''}</span><i>${g.emoji}</i></div>`).join('')}</div>`;
         break;
       case 'fuel': {
         let cells = '';
@@ -412,7 +412,7 @@
       return;
     }
     if (t.options.length === 4) box.classList.add('cols2');
-    if (t.options[0].row) { box.className = 'options row'; box.style.gridTemplateColumns = `repeat(${t.options.length}, 1fr)`; }
+    if (t.options[0].row) { box.className = 'options row'; box.style.gridTemplateColumns = `repeat(${t.options.length}, minmax(0, 1fr))`; }
     if (t.options[0].bar) box.className = 'options bars';
     t.options.forEach((o, i) => {
       const b = document.createElement('button');
@@ -426,6 +426,7 @@
         const s = T.SHAPES.find(x => x.id === o.shape);
         b.innerHTML = shapeSVG(o.shape, o.color) + `<span class="lbl" hidden>${s.name}</span>`;
       } else if (o.emoji) { b.classList.add('emoji'); b.textContent = o.label; }
+      else if (o.word) { b.classList.add('asteroid', 'signbtn'); b.innerHTML = `<span>${o.label}</span><small>${o.word}</small>`; }
       else { b.classList.add('asteroid'); b.textContent = o.label; }
       b.dataset.value = String(o.value); b.dataset.i = String(i);
       if (t.kind === 'order') b.addEventListener('click', () => onOrderTap(t, b, o.value));
@@ -493,8 +494,8 @@
       M.busy = true;
       fb(`Ответ: ${t.explain}`, 'bad');
       revealAnswer(t);
-      speak(`Правильный ответ: ${t.explain}. Ничего, в следующий раз получится!`);
-      finishTask(t, 0, 2400);
+      speak(`Правильный ответ: ${t.explainSay || t.explain}. Ничего, в следующий раз получится!`);
+      finishTask(t, 0, 4200);
     }
   }
   function revealAnswer(t) {
@@ -533,7 +534,7 @@
           b.classList.add('picked'); b.innerHTML = `<span class="ord">${k + 1}</span>${b.dataset.value}`;
         });
         speak(`Правильный порядок: ${t.answer.join(', ')}`);
-        finishTask(t, 0, 2400);
+        finishTask(t, 0, 3600);
       } else { fb('Не то число', 'bad'); hintNextOrder(t); }
     }
   }
@@ -554,7 +555,7 @@
         stage.innerHTML = `<div class="porthole">${groupsHTML(t.display.groups, { numbered: true })}</div>`; break;
       case 'show-objects': {
         const box = stage.querySelector('.expr-objs'); if (box) box.hidden = false;
-        const sh = stage.querySelector('.story-hidden'); if (sh) sh.hidden = true; break; }
+        break; }
       case 'fuel-count':
         stage.querySelectorAll('.tank i.empty').forEach(c => { c.textContent = c.dataset.i; }); break;
       case 'pair-counts':
@@ -585,7 +586,7 @@
       case 'order-next': hintNextOrder(t); break;
       case 'share-pairs':
         stage.querySelectorAll('.share-obj').forEach(o => o.classList.add('p' + o.dataset.p));
-        stage.querySelector('#share-a').textContent = t.answer; stage.querySelector('#share-b').textContent = t.answer; break;
+        stage.querySelectorAll('.srocket').forEach((r, i) => r.classList.add('r' + i + '-on')); break;
       case 'diff-highlight':
         stage.querySelectorAll('.diff-extra').forEach(o => o.classList.add('on')); break;
       case 'tens-count':
@@ -599,8 +600,11 @@
         const btns = [...document.querySelectorAll('#options .opt')];
         btns.forEach((b, i) => { const n = b.querySelector('.ord-num'); if (n) { n.hidden = false; n.textContent = fromRight ? btns.length - i : i + 1; } });
         break; }
-      case 'size-numbers':
-        document.querySelectorAll('#options .bar-len').forEach(l => l.hidden = false); break;
+      case 'size-numbers': {
+        const bodies = [...document.querySelectorAll('#options .opt.bar .bar-body')];
+        const lens = bodies.map(b => b.offsetWidth);
+        bodies.forEach((b, i) => { b.classList.toggle('longest', lens[i] === Math.max(...lens)); b.classList.toggle('shortest', lens[i] === Math.min(...lens)); });
+        break; }
       case 'corners-dots':
         stage.querySelectorAll('.corner-dot').forEach(g => g.removeAttribute('hidden')); break;
     }
@@ -619,6 +623,7 @@
       else { SFX.good(); face('🤩', 1200); msg = (stars === 2 ? '⭐⭐ ' : '⭐ ') + praise; }
       if (M.combo === 4 || M.combo === 8) { M.bonus++; S.stars++; msg += ' +1 бонус'; }
       fb(msg, 'ok');
+      Speech.clearPending();
       speak(M.combo === 3 ? 'Турбо! Три подряд!' : M.combo === 6 ? 'Шесть подряд! Ты просто ракета!' : praise, 'low');
     }
     recordStat(t.skill, stars, seconds);
@@ -778,7 +783,7 @@
 
   // ---------- события ----------
   $('btn-start').addEventListener('click', () => { audio(); SFX.tap(); startMission(currentPlanet()); });
-  $('btn-go').addEventListener('click', () => { SFX.launch(); beginTasks(); });
+  $('btn-go').addEventListener('click', () => { Speech.stop(); SFX.launch(); beginTasks(); });
   $('btn-intro-back').addEventListener('click', () => { Speech.stop(); M = null; renderHome(); show('home'); });
   $('btn-quit').addEventListener('click', () => { Speech.stop(); M = null; renderHome(); show('home'); });
   $('btn-speak').addEventListener('click', () => { if (M) speak(M.tasks[M.idx].say, 'now'); });
