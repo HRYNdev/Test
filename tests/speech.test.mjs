@@ -234,6 +234,7 @@ test('(6) страховочный таймер продвигает очере�
     S.say(text);
     S.say('Следующая.');
     assert.equal(synth.spoken.length, 1);
+    synth.spoken[0].start(); // речь началась, но onend так и не пришёл
     mock.timers.tick(text.length * 90 + 2000 - 1);
     assert.equal(synth.spoken.length, 1, 'до истечения таймера ждём');
     mock.timers.tick(1);
