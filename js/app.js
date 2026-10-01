@@ -758,6 +758,8 @@
         <div class="toggle"><label><input type="checkbox" id="set-voice" ${S.settings.voice ? 'checked' : ''}> Озвучка заданий</label></div>
         <div class="toggle"><label><input type="checkbox" id="set-sound" ${S.settings.sound ? 'checked' : ''}> Звуки</label></div>
         <div class="note">Голос: ${Speech.voiceName() || (Speech.available() ? 'русский голос не найден, установи его в настройках Android (Синтез речи)' : 'браузер не поддерживает')}</div>
+        <button class="big-btn small-btn" id="btn-voice-test">🔊 Проверить голос</button>
+        <pre class="diag" id="voice-diag"></pre>
       </div>
       <div class="card"><h3>Опасная зона</h3>
         <button class="big-btn small-btn danger" id="btn-reset">Сбросить весь прогресс</button>
@@ -773,6 +775,16 @@
       g.parentElement.querySelector('.bar.diff i').style.width = pct + '%';
     })));
     $('global-btns').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { Difficulty.setGlobal(S.dl, Number(b.dataset.d)); save(); renderParent(); }));
+    const showDiag = () => {
+      const st = Speech.status();
+      $('voice-diag').textContent = Object.entries(st).map(([k, v]) => `${k}: ${v}`).join('\n');
+    };
+    showDiag();
+    $('btn-voice-test').addEventListener('click', () => {
+      Speech.setEnabled(true);
+      Speech.say('Привет! Я Зум. Если ты меня слышишь, озвучка работает.', { interrupt: true });
+      setTimeout(showDiag, 300); setTimeout(showDiag, 1500); setTimeout(showDiag, 4000);
+    });
     $('set-adaptive').addEventListener('change', e => { S.settings.adaptive = e.target.checked; save(); });
     $('set-voice').addEventListener('change', e => { S.settings.voice = e.target.checked; Speech.setEnabled(S.settings.voice); save(); });
     $('set-sound').addEventListener('change', e => { S.settings.sound = e.target.checked; save(); });
