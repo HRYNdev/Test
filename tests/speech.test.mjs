@@ -123,7 +123,7 @@ test('onerror предыдущей тоже продвигает очередь'
   removeMock();
 });
 
-test('(2) say с interrupt: cancel вызван, очередь очищена, новая фраза стартует после паузы', async () => {
+test('(2) say с interrupt: cancel вызван, очередь очищена, новая фраза стартует сразу', async () => {
   const synth = installMock();
   const S = fresh();
   S.say('Старая фраза.');
@@ -131,32 +131,46 @@ test('(2) say с interrupt: cancel вызван, очередь очищена, 
   synth.spoken[0].start();
   S.say('Новое задание!', { interrupt: true });
   assert.equal(synth.cancelCalls, 1, 'cancel вызван');
-  assert.equal(synth.spoken.length, 1, 'новая фраза не произнесена сразу после cancel (пауза)');
+  assert.equal(synth.spoken.length, 2, 'новая фраза произнесена сразу после cancel');
+  assert.equal(synth.spoken[1].text, 'Новое задание!');
   assert.equal(S.pending(), 1, 'в очереди только новая фраза');
   // устаревший onend от обрезанной фразы ничего не ломает
   synth.spoken[0].end();
-  assert.equal(synth.spoken.length, 1);
-  await sleep(50);
-  assert.equal(synth.spoken.length, 1, 'через 50 мс всё ещё ждём');
-  await sleep(120);
-  assert.equal(synth.spoken.length, 2, 'после ~120 мс новая фраза стартовала');
-  assert.equal(synth.spoken[1].text, 'Новое задание!');
-  // старые фразы из очереди не всплыли
-  synth.spoken[1].end();
   assert.equal(synth.spoken.length, 2);
+  synth.spoken[1].start();
+  synth.spoken[1].end();
+  assert.equal(synth.spoken.length, 2, 'старые фразы из очереди не всплыли');
   assert.equal(S.pending(), 0);
   removeMock();
 });
 
-test('(2b) interrupt во время паузы: вторая interrupt-фраза побеждает, старая не стартует', async () => {
+test('(2b) два interrupt подряд: последняя побеждает, первая отменена', async () => {
   const synth = installMock();
   const S = fresh();
   S.say('А.');
   S.say('Б.', { interrupt: true });
   S.say('В.', { interrupt: true });
-  await sleep(200);
-  assert.equal(synth.spoken.length, 2);
-  assert.equal(synth.spoken[1].text, 'В.');
+  assert.equal(synth.spoken.length, 3);
+  assert.equal(synth.spoken[2].text, 'В.');
+  assert.equal(synth.cancelCalls, 2);
+  synth.spoken[2].start();
+  await sleep(1000);
+  assert.equal(synth.spoken.length, 3, 'без повторов, если речь началась');
+  removeMock();
+});
+
+test('(2c) повтор speak(), если синтезатор не начал говорить за ~0.9 с', async () => {
+  const synth = installMock();
+  const S = fresh();
+  S.say('Тишина.');
+  assert.equal(synth.spoken.length, 1);
+  synth.speaking = false; // синтезатор «проглотил» speak(): не говорит и onstart не прислал
+  await sleep(1000);
+  assert.equal(synth.spoken.length, 2, 'повторный speak');
+  assert.equal(synth.spoken[1].text, 'Тишина.');
+  assert.equal(S.status().retries, 1);
+  synth.spoken[1].start(); synth.spoken[1].end();
+  assert.equal(S.pending(), 0);
   removeMock();
 });
 
@@ -178,19 +192,22 @@ test('(3) priority low отбрасывается при непустой оче
   removeMock();
 });
 
-test('(4) длинный текст из 3 предложений даёт 3 utterance по очереди', () => {
+test('(4) короткий текст — одна utterance; длинный режется по предложениям на куски ≤180 символов', () => {
   const synth = installMock();
   const S = fresh();
   S.say('Летим на планету Марс! Там красные пустыни и высокие горы. Готов к старту?');
   assert.equal(synth.spoken.length, 1);
-  assert.equal(synth.spoken[0].text, 'Летим на планету Марс!');
+  assert.equal(synth.spoken[0].text, 'Летим на планету Марс! Там красные пустыни и высокие горы. Готов к старту?');
   synth.spoken[0].end();
-  assert.equal(synth.spoken[1].text, 'Там красные пустыни и высокие горы.');
+  const long = 'Первое предложение про ракету и большие планеты вокруг. '.repeat(3) + 'Второе предложение про инопланетян и звёзды на небе. '.repeat(3) + 'Конец истории!';
+  const chunks = S.splitText(long);
+  assert.ok(chunks.length >= 2, 'несколько кусков');
+  assert.ok(chunks.every(c => c.length <= 180), 'каждый кусок ≤ 180');
+  assert.equal(chunks.join(' '), long.replace(/\s+/g, ' ').trim(), 'ничего не потеряно');
+  S.say(long);
+  assert.equal(synth.spoken.length, 2);
   synth.spoken[1].end();
-  assert.equal(synth.spoken[2].text, 'Готов к старту?');
-  synth.spoken[2].end();
-  assert.equal(synth.spoken.length, 3);
-  assert.equal(S.pending(), 0);
+  assert.equal(synth.spoken.length, 3, 'второй кусок стартовал после первого');
   removeMock();
 });
 
@@ -199,9 +216,11 @@ test('splitText: очень длинное предложение режется
   const long = Array.from({ length: 12 }, (_, i) => `слово номер ${i} и ещё немного текста`).join(', ') + '.';
   const parts = S.splitText(long);
   assert.ok(parts.length > 1);
-  assert.ok(parts.every(p => p.length <= 160));
+  assert.ok(parts.every(p => p.length <= 180));
   assert.equal(parts.join(' ').replace(/\s+/g, ' '), long);
-  assert.deepEqual(S.splitText('А потом… домой? Да.'), ['А потом… домой?', 'Да.']);
+  assert.deepEqual(S.splitText('А потом… домой? Да.'), ['А потом… домой? Да.'], 'короткий текст — один кусок');
+  const two = 'А потом… домой? '.repeat(12) + 'Да.';
+  assert.ok(S.splitText(two).length >= 2 && S.splitText(two).every(x => !/^домой/.test(x)), 'многоточие внутри фразы не рвёт');
   assert.deepEqual(S.splitText('   '), []);
   assert.deepEqual(S.splitText(null), []);
 });
@@ -259,11 +278,12 @@ test('(8) onSpeaking: true при старте, false когда очередь 
   S.onSpeaking(f => calls.push(f));
   S.onSpeaking(() => { throw new Error('плохой колбэк'); }); // не должен ломать очередь
   S.say('Раз. Два.');
+  S.say('Три. Четыре.');
   assert.deepEqual(calls, [], 'до onstart ничего');
   synth.spoken[0].start();
   assert.deepEqual(calls, [true]);
   synth.spoken[0].end();
-  assert.deepEqual(calls, [true], 'между кусками false не приходит');
+  assert.deepEqual(calls, [true], 'между фразами очереди false не приходит');
   synth.spoken[1].start();
   assert.deepEqual(calls, [true]);
   synth.spoken[1].end();
