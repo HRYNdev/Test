@@ -21,6 +21,8 @@
     { name: 'Звезда', e: '⭐', story: 'Мы у самой звезды! Она светит тем, кто хорошо считает.' },
     { name: 'Галактика', e: '🌌', story: 'Край галактики. Дальше летали только самые умные космонавты.' },
   ];
+  const TINTS = ['#2b2f6b', '#6b2b2b', '#6b5a2b', '#4a4a4a', '#6b4a2b', '#5a4a7a', '#2b5a6b', '#3b2b7a', '#2b2b3b', '#2b5a5a', '#6b6b2b', '#4a2b6b'];
+  function setTint(i) { document.body.style.setProperty('--tint', TINTS[i % TINTS.length]); }
   const EXTRA_PLANET_EMOJI = ['🌍', '🌞', '🌠', '🛸', '🌗', '💫', '🌑', '🌕'];
   const EXTRA_STORIES = [
     'Неизвестная планета! Разведаем её вместе.', 'Здесь ещё никто не считал. Будем первыми!',
@@ -33,17 +35,16 @@
     porthole: '🔭 Иллюминатор', docking: '🛰️ Стыковка', flyaway: '🛸 Улетели', fuel: '⛽ Заправка', story: '📖 История',
     planets: '🪐 Две планеты', scales: '⚖️ Космо-весы', radar: '📡 Радар', countdown: '🚀 Обратный отсчёт',
     numline: '🛬 Посадка', repair: '🔧 Ремонт', runway: '💡 Взлётная полоса', clock: '⏰ Космо-часы', shop: '🛒 Космо-магазин',
+    mirror: '🪞 Зеркальная планета', share: '🍬 Поровну', tens: '📦 Десяток', secret: '🔮 Загадка', hangar: '🏗️ Ангар', radio: '📻 Рация',
   };
 
   // ---------- состояние ----------
-  const DEFAULT_DIFF = { count: 0.35, add: 0.3, sub: 0.15, fuel: 0.2, story: 0.2, compare: 0.3, missing: 0.3, order: 0.2,
-    neighbors: 0.25, numline: 0.2, shapes: 0.15, pattern: 0.15, clock: 0.1, money: 0.15 };
   function defaultState() {
     const skills = {};
     for (const k of Object.keys(T.SKILLS)) skills[k] = true;
     return {
       stars: 0, planets: [], stickers: [],
-      diff: { ...DEFAULT_DIFF },
+      dl: Difficulty.create(),
       stats: {}, history: [], lastFlight: null,
       settings: { voice: true, sound: true, adaptive: true, skills },
     };
@@ -54,11 +55,13 @@
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return defaultState();
       const d = defaultState(), s = JSON.parse(raw);
-      const st = { ...d, ...s, diff: { ...d.diff, ...(s.diff || {}) },
+      const st = { ...d, ...s,
         settings: { ...d.settings, ...(s.settings || {}), skills: { ...d.settings.skills, ...((s.settings || {}).skills || {}) } } };
-      // миграция со старых уровней 1..3
-      if (s.levels && !s.diff) for (const k in s.levels) st.diff[k] = Math.min(1, (s.levels[k] - 1) / 2 + 0.1);
-      delete st.levels; delete st.streak; delete st.failStreak;
+      // миграция со старых форматов: levels 1..3 → diff 0..1 → Difficulty state
+      let old = s.diff;
+      if (s.levels && !old) { old = {}; for (const k in s.levels) old[k] = Math.min(1, (s.levels[k] - 1) / 2 + 0.1); }
+      st.dl = s.dl ? Difficulty.normalize(s.dl) : old ? Difficulty.migrate(old) : Difficulty.create();
+      delete st.levels; delete st.streak; delete st.failStreak; delete st.diff;
       return st;
     } catch (e) { return defaultState(); }
   }
@@ -113,24 +116,16 @@
     sticker() { [784, 988, 1175, 1568].forEach((f, i) => tone(f, 0.18, 'sine', 0.2, i * 0.08)); },
   };
 
-  // ---------- речь ----------
-  let voice = null;
-  function pickVoice() {
-    if (!('speechSynthesis' in window)) return;
-    const vs = speechSynthesis.getVoices();
-    voice = vs.find(v => /^ru/i.test(v.lang) && /google|yandex|premium|enhanced/i.test(v.name))
-      || vs.find(v => /^ru/i.test(v.lang)) || null;
-  }
-  if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
-  function speak(text) {
-    if (!S.settings.voice || !('speechSynthesis' in window) || !text) return;
-    try {
-      speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'ru-RU'; u.rate = 0.92; u.pitch = 1.05;
-      if (voice) u.voice = voice;
-      speechSynthesis.speak(u);
-    } catch (e) { /* нет TTS */ }
+  // ---------- речь (js/speech.js) ----------
+  Speech.init({ lang: 'ru-RU', rate: 0.92, pitch: 1.05 });
+  Speech.setEnabled(S.settings.voice);
+  Speech.onSpeaking(on => { const f = $('face'); if (f) f.classList.toggle('talking', on); const g = document.querySelector('#intro .face'); if (g) g.classList.toggle('talking', on); });
+  // speak(text) — в хвост очереди; speak(text, 'now') — прервать всё; speak(text, 'low') — только если очередь пуста
+  function speak(text, mode) {
+    if (!text) return;
+    if (mode === 'now') Speech.say(text, { interrupt: true });
+    else if (mode === 'low') Speech.say(text, { priority: 'low' });
+    else Speech.say(text);
   }
 
   // ---------- экраны ----------
@@ -146,6 +141,9 @@
   // ---------- главный экран ----------
   function renderHome() {
     $('home-stars').textContent = `⭐ ${S.stars}`;
+    const r = Difficulty.rank(S.dl);
+    $('rank').innerHTML = `<span class="rank-e">${r.emoji}</span><span class="rank-n">${r.name}</span><span class="rank-bar"><i style="width:${Math.round(r.progress * 100)}%"></i></span>`;
+    setTint(currentPlanet());
     const cur = currentPlanet();
     const total = Math.max(PLANETS.length, cur + 3);
     const map = $('map');
@@ -156,12 +154,13 @@
       const el = document.createElement('div');
       const locked = i > cur;
       el.className = 'planet' + (locked ? ' locked' : '') + (i === cur ? ' current' : '');
+      el.style.setProperty('--i', i);
       const rating = st ? st.rating : 0;
       el.innerHTML = `<span class="pe">${p.e}</span><span class="pname">${p.name}</span>` +
         `<span class="pstars">${'⭐'.repeat(rating)}${'<span style="opacity:.25">⭐</span>'.repeat(3 - rating)}</span>` +
         (i === cur ? `<span class="rocket" ${flight ? 'style="visibility:hidden"' : ''}>🚀</span>` : '');
       el.addEventListener('click', () => {
-        if (locked) { el.classList.add('shake'); setTimeout(() => el.classList.remove('shake'), 400); SFX.bad(); speak('Сначала открой предыдущую планету.'); return; }
+        if (locked) { el.classList.add('shake'); setTimeout(() => el.classList.remove('shake'), 400); SFX.bad(); speak('Сначала открой предыдущую планету.', 'low'); return; }
         SFX.tap(); startMission(i);
       });
       map.appendChild(el);
@@ -192,19 +191,22 @@
   // ---------- миссия ----------
   let M = null;
   function startMission(planetIdx) {
-    const tasks = T.buildMission(enabledSkills(), S.diff, TASKS_PER_MISSION);
+    const tasks = T.buildMission(enabledSkills(), Difficulty.map(S.dl, enabledSkills()), TASKS_PER_MISSION);
     M = { planet: planetIdx, tasks, idx: 0, stars: 0, bonus: 0, results: [], attempts: 0, picked: [], busy: false, combo: 0, t0: 0 };
     const p = planetInfo(planetIdx);
     $('intro-planet').textContent = p.e;
     $('intro-title').textContent = p.name;
     $('intro-story').textContent = p.story;
+    setTint(planetIdx);
     show('intro');
-    speak(`Летим на планету ${p.name}! ${p.story}`);
+    speak(`Летим на планету ${p.name}! ${p.story}`, 'now');
   }
   function beginTasks() {
-    show('game');
-    $('face').textContent = '👽';
-    renderTask();
+    launchOverlay(() => { show('game'); $('face').textContent = '👽'; renderTask(); });
+  }
+  function launchOverlay(done) {
+    const o = $('launch'); o.hidden = false; o.classList.remove('go'); void o.offsetWidth; o.classList.add('go');
+    setTimeout(() => { o.hidden = true; done(); }, 1000);
   }
 
   function renderProgress() {
@@ -231,9 +233,12 @@
     $('feedback').textContent = ''; $('feedback').className = 'feedback';
     const hint = $('hint'); hint.hidden = true; hint.textContent = '';
     const stage = $('stage'); stage.innerHTML = ''; stage.style.display = '';
-    const opts = $('options'); opts.innerHTML = ''; opts.className = 'options';
+    const opts = $('options'); opts.innerHTML = ''; opts.className = 'options'; opts.style.gridTemplateColumns = '';
     renderStage(t, stage);
     renderOptions(t, opts);
+    const ear = $('btn-ear'); if (ear) ear.addEventListener('click', () => { SFX.tap(); speak(t.say, 'now'); });
+    stage.querySelectorAll('.obj, .coin, .sh, .cell, .tank i, .singles i').forEach((o, i) => o.style.setProperty('--i', i));
+    [stage, opts].forEach(el => { el.classList.remove('enter'); void el.offsetWidth; el.classList.add('enter'); });
     const noStage = stage.style.display === 'none';
     opts.classList.toggle('tall', noStage);
     document.querySelector('.task').classList.toggle('collapsed', noStage);
@@ -309,21 +314,55 @@
           '<div class="coins">' + d.coins.map(c => `<div class="coin c${c}">${c}</div>`).join('') + '</div>' +
           `<div class="coin-sum" id="coin-sum" hidden>${d.coins.join(' + ')} = ?</div>`;
         break;
+      case 'share': {
+        let objs = '';
+        for (let i = 0; i < d.n; i++) objs += `<span class="obj share-obj" data-p="${i % 2}">${d.emoji}</span>`;
+        stage.innerHTML = `<div class="share"><div class="objs${d.n > 5 ? ' rows5' : ''}">${objs}</div>` +
+          `<div class="share-rockets"><div class="srocket r0">🚀<b id="share-a"></b></div><div class="srocket r1">🚀<b id="share-b"></b></div></div></div>`;
+        break; }
+      case 'diff': {
+        const [g1, g2] = d.groups;
+        const row = (g, extraFrom) => `<div class="diff-row"><b>${g.label}</b><div class="objs">${Array.from({ length: g.n }, (_, i) =>
+          `<span class="obj${extraFrom != null && i >= extraFrom ? ' diff-extra' : ''}">${g.emoji}</span>`).join('')}</div></div>`;
+        stage.innerHTML = `<div class="diff">${row(g1, g2.n)}${row(g2)}</div>`;
+        break; }
+      case 'tens': {
+        let singles = '';
+        for (let i = 1; i <= d.x; i++) singles += `<i data-n="${10 + i}"></i>`;
+        stage.innerHTML = `<div class="tens"><div class="ten-box">${'<i></i>'.repeat(10)}<b>10</b></div><span class="plus">+</span><div class="singles">${singles}</div></div>` +
+          `<div class="tens-text">${d.mode === 'sum' ? `10 + ${d.x}` : `${10 + d.x} = 10 + ?`}</div>`;
+        break; }
+      case 'between':
+        stage.innerHTML = `<div class="between"><span class="n">${d.lo}</span><span class="lt">&lt;</span><span class="q">?</span><span class="lt">&lt;</span><span class="n">${d.hi}</span></div>` +
+          `<div id="between-line" hidden>${numlineSVG(d.max, null, 1, { lo: d.lo, hi: d.hi })}</div>`;
+        break;
+      case 'listen':
+        stage.innerHTML = `<button class="ear" id="btn-ear" aria-label="Повторить число">🔊</button><div class="listen-word" id="listen-word" ${Speech.isEnabled() && Speech.available() ? 'hidden' : ''}>${d.word}</div>`;
+        break;
+      case 'corners':
+        stage.innerHTML = `<div class="corner-shape">${shapeSVG(d.shape, d.color, true)}</div>`;
+        break;
       default:
         stage.style.display = 'none';
     }
   }
 
-  function shapeSVG(id, color) {
+  const POLY = {
+    triangle: [[50, 8], [94, 90], [6, 90]],
+    square: [[10, 10], [90, 10], [90, 90], [10, 90]],
+    diamond: [[50, 5], [92, 50], [50, 95], [8, 50]],
+    pentagon: [[50, 5], [95, 38], [78, 92], [22, 92], [5, 38]],
+    hexagon: [[28, 8], [72, 8], [95, 50], [72, 92], [28, 92], [5, 50]],
+    star: [[50, 5], [61, 38], [96, 38], [68, 58], [79, 92], [50, 71], [21, 92], [32, 58], [4, 38], [39, 38]],
+  };
+  function shapeSVG(id, color, withDots) {
     const p = {
       circle: '<circle cx="50" cy="50" r="42"/>',
-      square: '<rect x="10" y="10" width="80" height="80" rx="8"/>',
-      triangle: '<polygon points="50,8 94,90 6,90"/>',
-      star: '<polygon points="50,5 61,38 96,38 68,58 79,92 50,71 21,92 32,58 4,38 39,38"/>',
       heart: '<path d="M50 90 L14 52 A20 20 0 0 1 50 26 A20 20 0 0 1 86 52 Z"/>',
-      diamond: '<polygon points="50,5 92,50 50,95 8,50"/>',
-    }[id];
-    return `<svg viewBox="0 0 100 100" fill="${color}" stroke="rgba(0,0,0,.25)" stroke-width="3">${p}</svg>`;
+    }[id] || `<polygon points="${POLY[id].map(q => q.join(',')).join(' ')}"/>`;
+    const dots = withDots && POLY[id] && id !== 'star' ? POLY[id].map(([x, y], i) =>
+      `<g class="corner-dot" hidden><circle cx="${x}" cy="${y}" r="7" fill="#ff5c8a" stroke="#fff" stroke-width="2"/><text x="${x}" y="${y}" font-size="8" font-weight="900" fill="#fff" text-anchor="middle" dominant-baseline="central">${i + 1}</text></g>`).join('') : '';
+    return `<svg viewBox="-8 -8 116 116" fill="${color}" stroke="rgba(0,0,0,.25)" stroke-width="3">${p}${dots}</svg>`;
   }
   function clockSVG(h, m) {
     let ticks = '';
@@ -339,9 +378,11 @@
       <line x1="50" y1="50" x2="${50 + 32 * Math.cos(ma)}" y2="${50 + 32 * Math.sin(ma)}" stroke="#4cc9f0" stroke-width="4" stroke-linecap="round"/>
       <circle cx="50" cy="50" r="3.5" fill="#fff"/></svg>`;
   }
-  function numlineSVG(max, n, every) {
+  function numlineSVG(max, n, every, range) {
     const W = 340, pad = 18, step = (W - 2 * pad) / max;
-    let s = `<svg class="numline" viewBox="0 0 ${W} 122"><line x1="${pad}" y1="70" x2="${W - pad}" y2="70" stroke="#a9b1d6" stroke-width="3"/>`;
+    let s = `<svg class="numline" viewBox="0 0 ${W} 122">`;
+    if (range) s += `<rect x="${pad + range.lo * step}" y="40" width="${(range.hi - range.lo) * step}" height="50" rx="8" fill="rgba(255,210,63,.18)" stroke="#ffd23f" stroke-dasharray="4 3"/>`;
+    s += `<line x1="${pad}" y1="70" x2="${W - pad}" y2="70" stroke="#a9b1d6" stroke-width="3"/>`;
     for (let i = 0; i <= max; i++) {
       const x = pad + i * step, big = i % 5 === 0;
       s += `<line x1="${x}" y1="${big ? 58 : 63}" x2="${x}" y2="${big ? 82 : 77}" stroke="#fff" stroke-width="${big ? 3 : 2}"/>`;
@@ -349,9 +390,11 @@
       const y = max > 10 && i % 2 ? 114 : 98;
       s += `<text class="nl-label${show ? '' : ' hid'}" x="${x}" y="${y}" text-anchor="middle" font-size="${max > 10 ? 12 : 14}" font-weight="800" fill="#ffd23f">${i}</text>`;
     }
-    const rx = pad + n * step;
-    s += `<text x="${rx}" y="48" text-anchor="middle" font-size="30">🚀</text><polygon points="${rx - 6},52 ${rx + 6},52 ${rx},62" fill="#ff5c8a"/></svg>`;
-    return s;
+    if (n != null) {
+      const rx = pad + n * step;
+      s += `<text x="${rx}" y="48" text-anchor="middle" font-size="30">🚀</text><polygon points="${rx - 6},52 ${rx + 6},52 ${rx},62" fill="#ff5c8a"/>`;
+    }
+    return s + '</svg>';
   }
 
   // --- кнопки-варианты ---
@@ -369,10 +412,16 @@
       return;
     }
     if (t.options.length === 4) box.classList.add('cols2');
+    if (t.options[0].row) { box.className = 'options row'; box.style.gridTemplateColumns = `repeat(${t.options.length}, 1fr)`; }
+    if (t.options[0].bar) box.className = 'options bars';
     t.options.forEach((o, i) => {
       const b = document.createElement('button');
       b.className = 'opt';
-      if (o.shape) {
+      if (o.bar) {
+        b.classList.add('bar');
+        b.innerHTML = `<span class="bar-body" style="width:${o.bar}%"><span class="bar-tail">🔥</span><span class="bar-nose">🚀</span></span><span class="bar-len" hidden>${o.bar}</span>`;
+      } else if (o.row) { b.classList.add('emoji', 'rowitem'); b.innerHTML = `<span>${o.label}</span><span class="ord-num" hidden>${i + 1}</span>`; }
+      else if (o.shape) {
         b.classList.add('shape');
         const s = T.SHAPES.find(x => x.id === o.shape);
         b.innerHTML = shapeSVG(o.shape, o.color) + `<span class="lbl" hidden>${s.name}</span>`;
@@ -394,7 +443,42 @@
   function correct(t, btn) {
     M.busy = true;
     btn.classList.add('right', 'pop');
-    finishTask(t, M.attempts === 0 ? 2 : 1);
+    const stars = M.attempts === 0 ? 2 : 1;
+    flyStars(btn, stars);
+    celebrateScene(t);
+    finishTask(t, stars);
+  }
+  function flyStars(fromEl, n) {
+    const a = fromEl.getBoundingClientRect(), b = $('game-stars').getBoundingClientRect();
+    for (let i = 0; i < n * 2; i++) {
+      const st = document.createElement('div'); st.className = 'fly-star'; st.textContent = '⭐';
+      document.body.appendChild(st);
+      const x0 = a.left + a.width / 2 + (Math.random() - 0.5) * 60, y0 = a.top + a.height / 2;
+      const x1 = b.left + b.width / 2, y1 = b.top + b.height / 2;
+      st.animate([
+        { transform: `translate(${x0}px, ${y0}px) scale(.6)`, opacity: 1 },
+        { transform: `translate(${(x0 + x1) / 2 + (Math.random() - 0.5) * 120}px, ${(y0 + y1) / 2}px) scale(1.4)`, opacity: 1, offset: .5 },
+        { transform: `translate(${x1}px, ${y1}px) scale(.4)`, opacity: .2 },
+      ], { duration: 700 + i * 90, easing: 'cubic-bezier(.3,.7,.4,1)' }).onfinish = () => st.remove();
+    }
+    setTimeout(() => { const g = $('game-stars'); g.classList.remove('bump'); void g.offsetWidth; g.classList.add('bump'); }, 600);
+  }
+  function celebrateScene(t) {
+    const stage = $('stage');
+    const sc = t.scene, d = t.display;
+    if (sc === 'flyaway' || (d.type === 'story' && d.groups.some(g => g.crossed))) {
+      const box = stage.querySelector('.expr-objs'); if (box) box.hidden = false;
+      stage.querySelectorAll('.obj.crossed').forEach((o, i) => {
+        o.classList.remove('crossed'); o.classList.add('flyoff'); o.style.setProperty('--i', i);
+      });
+    } else if (d.type === 'fuel') {
+      stage.querySelectorAll('.tank i.empty').forEach((c, i) => setTimeout(() => { c.classList.add('full'); c.textContent = ''; }, 80 * i));
+      const r = stage.querySelector('.rocket-big'); if (r) r.classList.add('liftoff');
+    } else if (d.type === 'share') {
+      stage.querySelectorAll('.share-obj').forEach((o, i) => { o.classList.add('to-r' + (i % 2)); o.style.setProperty('--i', i); });
+    } else {
+      stage.querySelectorAll('.obj, .coin, .sh, .cell').forEach((o, i) => { o.classList.add('bounce'); o.style.setProperty('--i', i); });
+    }
   }
   function wrong(t, btn) {
     M.attempts++;
@@ -404,7 +488,7 @@
     if (M.attempts === 1) {
       showHint(t);
       fb('Попробуй ещё раз', 'bad');
-      setTimeout(() => speak(t.hint.say), 250);
+      speak(t.hint.say);
     } else {
       M.busy = true;
       fb(`Ответ: ${t.explain}`, 'bad');
@@ -499,6 +583,26 @@
       case 'coins-sum': {
         const c = $('coin-sum'); if (c) c.hidden = false; break; }
       case 'order-next': hintNextOrder(t); break;
+      case 'share-pairs':
+        stage.querySelectorAll('.share-obj').forEach(o => o.classList.add('p' + o.dataset.p));
+        stage.querySelector('#share-a').textContent = t.answer; stage.querySelector('#share-b').textContent = t.answer; break;
+      case 'diff-highlight':
+        stage.querySelectorAll('.diff-extra').forEach(o => o.classList.add('on')); break;
+      case 'tens-count':
+        stage.querySelectorAll('.singles i').forEach(i => { i.textContent = i.dataset.n; }); break;
+      case 'between-line': {
+        const l = $('between-line'); if (l) l.hidden = false; break; }
+      case 'listen-word': {
+        const w = $('listen-word'); if (w) w.hidden = false; break; }
+      case 'ordinal-numbers': {
+        const fromRight = /справа/.test(t.prompt);
+        const btns = [...document.querySelectorAll('#options .opt')];
+        btns.forEach((b, i) => { const n = b.querySelector('.ord-num'); if (n) { n.hidden = false; n.textContent = fromRight ? btns.length - i : i + 1; } });
+        break; }
+      case 'size-numbers':
+        document.querySelectorAll('#options .bar-len').forEach(l => l.hidden = false); break;
+      case 'corners-dots':
+        stage.querySelectorAll('.corner-dot').forEach(g => g.removeAttribute('hidden')); break;
     }
   }
 
@@ -515,7 +619,7 @@
       else { SFX.good(); face('🤩', 1200); msg = (stars === 2 ? '⭐⭐ ' : '⭐ ') + praise; }
       if (M.combo === 4 || M.combo === 8) { M.bonus++; S.stars++; msg += ' +1 бонус'; }
       fb(msg, 'ok');
-      speak(M.combo === 3 ? 'Турбо! Три подряд!' : M.combo === 6 ? 'Шесть подряд! Ты просто ракета!' : praise);
+      speak(M.combo === 3 ? 'Турбо! Три подряд!' : M.combo === 6 ? 'Шесть подряд! Ты просто ракета!' : praise, 'low');
     }
     recordStat(t.skill, stars, seconds);
     renderProgress();
@@ -530,9 +634,12 @@
     st.asked++;
     if (stars === 2) st.first++; else if (stars === 1) st.second++; else st.fail++;
     if (S.settings.adaptive) {
-      S.diff[skill] = T.nextDifficulty(S.diff[skill] == null ? 0.3 : S.diff[skill], stars, seconds);
-      // следующие задания этого навыка в текущей миссии — уже с новой сложностью
-      for (let i = M.idx + 1; i < M.tasks.length; i++) if (M.tasks[i].skill === skill) M.tasks[i] = T.generate(skill, S.diff[skill]);
+      const before = Difficulty.rank(S.dl).level;
+      Difficulty.update(S.dl, skill, stars, seconds);
+      // общий уровень изменился — оставшиеся задания миссии перегенерируем под новую сложность
+      for (let i = M.idx + 1; i < M.tasks.length; i++) M.tasks[i] = T.generate(M.tasks[i].skill, Difficulty.effective(S.dl, M.tasks[i].skill));
+      const r = Difficulty.rank(S.dl);
+      if (r.level > before) M.rankUp = r;
     }
     save();
   }
@@ -560,13 +667,15 @@
     $('result-stars').innerHTML = '⭐'.repeat(rating) + '<span class="dim">' + '⭐'.repeat(3 - rating) + '</span>' +
       `<div style="font-size:20px;color:var(--muted)">${M.stars} из ${MAX_STARS} звёзд${M.bonus ? ` + ${M.bonus} бонус` : ''}</div>`;
     const se = $('sticker-earned'); se.hidden = sticker === null;
+    const ru = $('rank-up'); ru.hidden = !M.rankUp;
+    if (M.rankUp) ru.innerHTML = `<div class="sticker-label">Новое звание!</div><div class="rank-big">${M.rankUp.emoji}</div><div class="rank-name">${M.rankUp.name}</div>`;
     if (sticker !== null) $('sticker-big').textContent = STICKERS[sticker];
     $('btn-next').textContent = rating > 0 ? 'Дальше 🚀' : 'Ещё раз 🚀';
     show('result');
     if (rating > 0) { SFX.fanfare(); confetti(); } else SFX.good();
     setTimeout(() => speak(rating > 0
-      ? `Планета ${p.name} открыта! ${rating === 3 ? 'Три звезды, идеально!' : ''} ${sticker !== null ? 'Ты получил новую наклейку!' : ''}`
-      : 'Почти получилось. Зум верит в тебя, давай ещё раз!'), 400);
+      ? `Планета ${p.name} открыта! ${rating === 3 ? 'Три звезды, идеально!' : ''} ${sticker !== null ? 'Ты получил новую наклейку!' : ''} ${M.rankUp ? 'И новое звание: ' + M.rankUp.name + '!' : ''}`
+      : 'Почти получилось. Зум верит в тебя, давай ещё раз!', 'now'), 400);
     if (sticker !== null) setTimeout(SFX.sticker, 900);
   }
 
@@ -615,7 +724,7 @@
         `<span class="bar"><i style="width:${acc}%"></i></span><span>${acc}%</span></div>`;
     }).join('');
     const levelsHTML = Object.keys(T.SKILLS).map(k => {
-      const pct = Math.round((S.diff[k] == null ? 0.3 : S.diff[k]) * 100);
+      const pct = Math.round(Difficulty.effective(S.dl, k) * 100);
       return `<div class="toggle"><label><input type="checkbox" data-skill="${k}" ${S.settings.skills[k] ? 'checked' : ''}> ${T.SKILLS[k].name}</label>` +
         `<div class="lvl"><span class="bar diff"><i style="width:${pct}%"></i></span><span class="pct" data-pct="${k}">${pct}%</span>` +
         `<div class="lvl-btns" data-skill="${k}"><button data-d="0.15">Л</button><button data-d="0.5">С</button><button data-d="0.85">Т</button></div></div></div>`;
@@ -632,6 +741,10 @@
         <div class="note">Точность: ответ с первой попытки = 100%, со второй = 50%.</div>
       </div>
       <div class="card"><h3>Последние миссии</h3><div class="history">${hist}</div></div>
+      <div class="card"><h3>Общий уровень</h3>
+        <div class="note">Звание: ${Difficulty.rank(S.dl).emoji} ${Difficulty.rank(S.dl).name}. Общая сложность ${Math.round(S.dl.global * 100)}%. Она растёт после каждого верного ответа и падает после ошибок; темы ниже — отклонения от неё.</div>
+        <div class="lvl-btns" id="global-btns"><button data-d="0.15">Легко</button><button data-d="0.4">Средне</button><button data-d="0.65">Трудно</button><button data-d="0.9">Очень</button></div>
+      </div>
       <div class="card"><h3>Темы и сложность</h3>
         <div class="note">Галочка включает тему. Полоска — текущая сложность 0–100%, она сама растёт после верных ответов и падает после ошибок. Кнопки: Л — легко, С — средне, Т — трудно.</div>${levelsHTML}
       </div>
@@ -639,7 +752,7 @@
         <div class="toggle"><label><input type="checkbox" id="set-adaptive" ${S.settings.adaptive ? 'checked' : ''}> Автоподбор сложности</label></div>
         <div class="toggle"><label><input type="checkbox" id="set-voice" ${S.settings.voice ? 'checked' : ''}> Озвучка заданий</label></div>
         <div class="toggle"><label><input type="checkbox" id="set-sound" ${S.settings.sound ? 'checked' : ''}> Звуки</label></div>
-        <div class="note">Голос: ${voice ? voice.name : ('speechSynthesis' in window ? 'русский голос не найден, установи его в настройках Android (Синтез речи)' : 'браузер не поддерживает')}</div>
+        <div class="note">Голос: ${Speech.voiceName() || (Speech.available() ? 'русский голос не найден, установи его в настройках Android (Синтез речи)' : 'браузер не поддерживает')}</div>
       </div>
       <div class="card"><h3>Опасная зона</h3>
         <button class="big-btn small-btn danger" id="btn-reset">Сбросить весь прогресс</button>
@@ -649,25 +762,26 @@
       S.settings.skills[cb.dataset.skill] = cb.checked; save();
     }));
     body.querySelectorAll('.lvl-btns').forEach(g => g.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
-      const k = g.dataset.skill; S.diff[k] = Number(b.dataset.d); save();
-      const pct = Math.round(S.diff[k] * 100);
+      const k = g.dataset.skill; Difficulty.set(S.dl, k, Number(b.dataset.d)); save();
+      const pct = Math.round(Difficulty.effective(S.dl, k) * 100);
       body.querySelector(`.pct[data-pct="${k}"]`).textContent = pct + '%';
       g.parentElement.querySelector('.bar.diff i').style.width = pct + '%';
     })));
+    $('global-btns').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { Difficulty.setGlobal(S.dl, Number(b.dataset.d)); save(); renderParent(); }));
     $('set-adaptive').addEventListener('change', e => { S.settings.adaptive = e.target.checked; save(); });
-    $('set-voice').addEventListener('change', e => { S.settings.voice = e.target.checked; save(); });
+    $('set-voice').addEventListener('change', e => { S.settings.voice = e.target.checked; Speech.setEnabled(S.settings.voice); save(); });
     $('set-sound').addEventListener('change', e => { S.settings.sound = e.target.checked; save(); });
     $('btn-reset').addEventListener('click', () => {
-      if (confirm('Точно сбросить звёзды, планеты, наклейки и статистику?')) { S = defaultState(); save(); renderParent(); }
+      if (confirm('Точно сбросить звёзды, планеты, наклейки и статистику?')) { S = defaultState(); Speech.setEnabled(S.settings.voice); save(); renderParent(); }
     });
   }
 
   // ---------- события ----------
   $('btn-start').addEventListener('click', () => { audio(); SFX.tap(); startMission(currentPlanet()); });
   $('btn-go').addEventListener('click', () => { SFX.launch(); beginTasks(); });
-  $('btn-intro-back').addEventListener('click', () => { M = null; renderHome(); show('home'); });
-  $('btn-quit').addEventListener('click', () => { if ('speechSynthesis' in window) speechSynthesis.cancel(); M = null; renderHome(); show('home'); });
-  $('btn-speak').addEventListener('click', () => { if (M) speak(M.tasks[M.idx].say); });
+  $('btn-intro-back').addEventListener('click', () => { Speech.stop(); M = null; renderHome(); show('home'); });
+  $('btn-quit').addEventListener('click', () => { Speech.stop(); M = null; renderHome(); show('home'); });
+  $('btn-speak').addEventListener('click', () => { if (M) speak(M.tasks[M.idx].say, 'now'); });
   $('btn-next').addEventListener('click', () => { SFX.tap(); startMission(currentPlanet()); });
   $('btn-home').addEventListener('click', () => { renderHome(); show('home'); });
   $('btn-album').addEventListener('click', () => { SFX.tap(); renderAlbum(); show('album'); });
@@ -683,19 +797,25 @@
   (function () {
     const g = $('btn-gear'); let timer = null;
     const start = (e) => { e.preventDefault(); clearTimeout(timer); timer = setTimeout(() => { timer = null; openGate(); }, 1200); };
-    const stop = () => { if (timer) { clearTimeout(timer); timer = null; speak('Удерживай кнопку подольше. Это для родителей.'); } };
+    const stop = () => { if (timer) { clearTimeout(timer); timer = null; speak('Удерживай кнопку подольше. Это для родителей.', 'low'); } };
     g.addEventListener('pointerdown', start);
     g.addEventListener('pointerup', stop); g.addEventListener('pointerleave', stop); g.addEventListener('pointercancel', stop);
     g.addEventListener('contextmenu', e => e.preventDefault());
   })();
 
   document.addEventListener('pointerdown', () => audio(), { once: true });
-  document.addEventListener('visibilitychange', () => { if (document.hidden && 'speechSynthesis' in window) speechSynthesis.cancel(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) Speech.stop(); });
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
   }
 
+  setInterval(() => {
+    if (!$('home').classList.contains('active') || document.hidden) return;
+    const c = document.createElement('div'); c.className = 'comet'; c.textContent = '☄️';
+    c.style.top = 10 + Math.random() * 40 + '%'; document.body.appendChild(c);
+    setTimeout(() => c.remove(), 2600);
+  }, 7000);
   renderHome();
   show('home');
   window.__cosmo = { get state() { return S; }, get mission() { return M; }, startMission, beginTasks, T };
