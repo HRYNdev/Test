@@ -15,6 +15,9 @@
 </head>
 <body>
   <div class="stars" aria-hidden="true"></div>
+  <div class="stars far" aria-hidden="true"></div>
+  <div class="tint" aria-hidden="true"></div>
+  <div class="launch" id="launch" hidden aria-hidden="true"><div class="launch-rocket">🚀</div><div class="launch-flame"></div></div>
 
   <!-- ГЛАВНЫЙ ЭКРАН: карта планет -->
   <section id="home" class="screen active">
@@ -24,6 +27,7 @@
       <button class="icon-btn" id="btn-gear" aria-label="Для родителей">⚙️</button>
     </header>
     <h1 class="title">Космо-<br>математика</h1>
+    <div class="rank" id="rank"></div>
     <div class="map" id="map"></div>
     <button class="big-btn primary" id="btn-start">🚀 Полетели!</button>
   </section>
@@ -72,6 +76,7 @@
       <div class="result-planet" id="result-planet">🪐</div>
       <h2 id="result-title">Планета открыта!</h2>
       <div class="result-stars" id="result-stars"></div>
+      <div class="sticker-earned rank-up" id="rank-up" hidden></div>
       <div class="sticker-earned" id="sticker-earned" hidden>
         <div class="sticker-label">Новая наклейка!</div>
         <div class="sticker-big" id="sticker-big">👽</div>
@@ -116,6 +121,8 @@
   <div class="confetti" id="confetti" aria-hidden="true"></div>
 
   <script src="js/tasks.js"></script>
+  <script src="js/speech.js"></script>
+  <script src="js/difficulty.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
