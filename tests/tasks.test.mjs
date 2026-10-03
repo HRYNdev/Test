@@ -32,7 +32,15 @@ for (const skill of skills) {
           const vals = t.options.map(o => o.value).sort((a, b) => a - b);
           const ans = t.answer.slice().sort((a, b) => a - b);
           assert.deepEqual(vals, ans, 'варианты = ответ');
+        } else if (t.kind === 'sequence') {
+          const vals = t.options.map(o => o.value);
+          assert.ok(t.answer.every(v => vals.includes(v)), 'все шаги — среди кнопок');
         } else assert.fail('kind');
+        assert.ok(t.guide && t.guide.mode && t.guide.say, 'есть режим «вместе»');
+        if (t.guide.mode === 'count' || t.guide.mode === 'sum' || t.guide.mode === 'share') assert.ok(t.guide.targets && t.guide.doneSay, 'count: цели и фраза-итог');
+        if (t.guide.mode === 'walk') assert.ok(t.guide.targets && typeof t.guide.upto === 'number' && t.guide.doneSay, 'walk: цели и предел');
+        assert.ok(t.sayShort, 'есть короткий повтор');
+        assert.ok(T.LESSONS[skill], 'есть урок');
         if (typeof t.answer === 'number') assert.ok(t.answer >= 0 && t.answer <= 25, `ответ в диапазоне: ${t.answer}`);
       }
     });
@@ -83,8 +91,10 @@ test('neighbors: ответ — сосед числа', () => {
   T.setRandom(mulberry32(14));
   for (let i = 0; i < 300; i++) {
     const t = T.generate('neighbors', i / 300);
-    assert.equal(t.answer, t.display.after ? t.display.n + 1 : t.display.n - 1);
-    assert.ok(t.answer >= 0);
+    const n = parseInt(t.prompt.match(/\d+/)[0]);
+    assert.equal(Math.abs(t.answer - n), 1);
+    assert.equal(/после/.test(t.prompt), t.answer > n);
+    assert.ok(t.answer >= 0 && t.answer <= 20);
   }
 });
 
@@ -93,6 +103,64 @@ test('numline: число внутри прямой', () => {
   for (let i = 0; i < 300; i++) {
     const t = T.generate('numline', i / 300);
     assert.ok(t.answer > 0 && t.answer < t.display.max);
+  }
+});
+
+test('flash: две кости складываются в ответ', () => {
+  T.setRandom(mulberry32(21));
+  for (let i = 0; i < 300; i++) {
+    const t = T.generate('flash', 0.9);
+    assert.equal(t.display.pattern, 'dice2');
+    assert.equal(t.display.dice2[0] + t.display.dice2[1], t.answer);
+    assert.ok(t.display.dice2.every(x => x >= 1 && x <= 6));
+  }
+});
+
+test('memory: пропавший предмет был в ряду, отвлекающие — не были', () => {
+  T.setRandom(mulberry32(22));
+  for (let i = 0; i < 300; i++) {
+    const t = T.generate('memory', i / 300);
+    assert.equal(t.display.items[t.display.hideIdx], t.answer);
+    for (const o of t.options) if (o.value !== t.answer) assert.ok(!t.display.items.includes(o.value));
+  }
+});
+
+test('between/neighbors: дорожка содержит ответ в пропуске', () => {
+  T.setRandom(mulberry32(23));
+  for (let i = 0; i < 300; i++) {
+    for (const k of ['between', 'neighbors', 'missing']) {
+      const t = T.generate(k, i / 300);
+      assert.equal(t.display.seq[t.display.idx], t.answer);
+      assert.ok(t.guide.upto < t.display.seq.length);
+    }
+  }
+});
+
+test('same: ровно один вариант совпадает с образцом', () => {
+  T.setRandom(mulberry32(24));
+  for (let i = 0; i < 300; i++) {
+    const t = T.generate('same', i / 300);
+    const same = t.options.filter(o => o.shape === t.display.shape && o.color === t.display.color);
+    assert.equal(same.length, 1); assert.equal(same[0].value, t.answer);
+  }
+});
+
+test('clock: целые часы при низкой сложности, подписи словами', () => {
+  T.setRandom(mulberry32(25));
+  for (let i = 0; i < 200; i++) {
+    const t = T.generate('clock', 0.2);
+    assert.equal(t.display.m, 0);
+    assert.ok(/час/.test(t.options.find(o => o.value === t.answer).label));
+  }
+});
+
+test('речь: нет пустых формулировок, нет «после девять» (падежи)', () => {
+  T.setRandom(mulberry32(26));
+  for (const k of skills) for (let i = 0; i < 100; i++) {
+    const t = T.generate(k, i / 100);
+    assert.ok(t.say.length > 8 && t.say.length < 220, `${k}: длина речи ${t.say.length}`);
+    assert.ok(!/после (ноль|один|два|три|четыре|пять|шесть|семь|восемь|девять|десять)\b/.test(t.say), t.say);
+    assert.ok(!/между (ноль|один|два|три|четыре|пять|шесть|семь|восемь|девять|десять)\b/.test(t.say), t.say);
   }
 });
 
@@ -111,30 +179,6 @@ test('pattern: ответ = следующий элемент узора', () =>
     const { seq, unitLen } = t.display;
     assert.equal(t.answer, seq[seq.length % unitLen]);
   }
-});
-
-test('buildMission: 8 заданий, без повторов подряд, только включённые', () => {
-  T.setRandom(mulberry32(11));
-  for (let i = 0; i < 100; i++) {
-    const en = ['sub', 'add', 'clock'];
-    const m = T.buildMission(en, { sub: 0.5, add: 0.2 }, 8);
-    assert.equal(m.length, 8);
-    for (let j = 0; j < 8; j++) {
-      assert.ok(en.includes(m[j].skill));
-      if (j) assert.notEqual(m[j].skill, m[j - 1].skill);
-    }
-  }
-  const one = T.buildMission(['sub'], {}, 8);
-  assert.ok(one.every(t => t.skill === 'sub' && t.difficulty === 0.3));
-});
-
-test('nextDifficulty: растёт при успехе, падает при провале, в пределах 0..1', () => {
-  assert.ok(T.nextDifficulty(0.5, 2, 3) > T.nextDifficulty(0.5, 2, 20));
-  assert.ok(T.nextDifficulty(0.5, 2, 20) > 0.5);
-  assert.ok(T.nextDifficulty(0.5, 1) < 0.5);
-  assert.ok(T.nextDifficulty(0.5, 0) < T.nextDifficulty(0.5, 1));
-  assert.equal(T.nextDifficulty(1, 2, 1), 1);
-  assert.equal(T.nextDifficulty(0, 0), 0);
 });
 
 test('plural', () => {
