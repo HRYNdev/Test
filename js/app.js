@@ -1,11 +1,17 @@
-/* Космо-математика: логика приложения */
+/* Космо-математика: логика приложения.
+   Модули: Tasks (генераторы, js/tasks.js), Curriculum (ступени и план миссии, js/curriculum.js), Speech (озвучка).
+   Здесь: экраны, миссия, режим «вместе» после первой ошибки, уроки, серия дней, родительский раздел. */
 (function () {
   'use strict';
-  const T = window.Tasks;
+  const T = window.Tasks, C = window.Curriculum;
   const $ = (id) => document.getElementById(id);
   const TASKS_PER_MISSION = 8;
   const MAX_STARS = TASKS_PER_MISSION * 2;
   const STORAGE_KEY = 'cosmomath.v1';
+  const OPEN_STARS = 8, TWO_STARS = 12, THREE_STARS = 15;   // порог открытия планеты: 8 из 16 (угадать уже не выйдет)
+  const REPEAT_AFTER_MS = 16000;                              // автоповтор вопроса, если ребёнок молчит
+  const STREAK_MILESTONES = [3, 5, 7, 10, 14, 21, 30];
+  const STREAK_STICKERS = ['🔥', '🏅', '🎖️', '🏆', '👑', '💫', '🌟'];
 
   const PLANETS = [
     { name: 'Луна', e: '🌙', story: 'Лунатики сбились со счёта: сколько у них кратеров? Поможешь посчитать?' },
@@ -29,24 +35,27 @@
     'Сигнал с этой планеты просит помощи. Летим!', 'Планета-загадка. Разгадаем её числа!',
   ];
   const STICKERS = ['👽', '🛸', '🤖', '🧑‍🚀', '🐉', '🦄', '🦖', '🐙', '🐬', '🦋', '🐢', '🦊',
-    '🐼', '🦁', '🐸', '🦉', '🐨', '🦕', '🐳', '🦜', '🐯', '🦩', '🐧', '🦔', '🐲', '🦚', '🐝', '🦋', '🐞', '🌈'];
+    '🐼', '🦁', '🐸', '🦉', '🐨', '🦕', '🐳', '🦜', '🐯', '🦩', '🐧', '🦔', '🐲', '🦚', '🐝', '🐞', '🌈', '🦭'];
   const PRAISE = ['Молодец!', 'Точно!', 'Супер!', 'Отлично!', 'Верно!', 'Так держать!', 'Ура!', 'Космически!', 'Ты звезда!', 'Полный вперёд!'];
   const SCENES = {
     porthole: '🔭 Иллюминатор', docking: '🛰️ Стыковка', flyaway: '🛸 Улетели', fuel: '⛽ Заправка', story: '📖 История',
     planets: '🪐 Две планеты', scales: '⚖️ Космо-весы', radar: '📡 Радар', countdown: '🚀 Обратный отсчёт',
     numline: '🛬 Посадка', repair: '🔧 Ремонт', runway: '💡 Взлётная полоса', clock: '⏰ Космо-часы', shop: '🛒 Космо-магазин',
     mirror: '🪞 Зеркальная планета', share: '🍬 Поровну', tens: '📦 Десяток', secret: '🔮 Загадка', hangar: '🏗️ Ангар', radio: '📻 Рация',
+    flash: '👀 Быстрый взгляд', memory: '🧠 Память',
   };
+  const ORD_SAY = ['первая', 'вторая', 'третья', 'четвёртая', 'пятая', 'шестая', 'седьмая', 'восьмая'];
+  const W = n => T.NUM_WORDS[n] != null ? T.NUM_WORDS[n] : String(n);
 
   // ---------- состояние ----------
   function defaultState() {
     const skills = {};
     for (const k of Object.keys(T.SKILLS)) skills[k] = true;
     return {
-      stars: 0, planets: [], stickers: [],
-      dl: Difficulty.create(),
-      stats: {}, history: [], lastFlight: null,
-      settings: { voice: true, sound: true, adaptive: true, skills },
+      v: 2, stars: 0, planets: [], stickers: [], galaxy: 1, streakAwards: [],
+      cur: C.create(),
+      stats: {}, history: [], lastFlight: null, notice: null,
+      settings: { voice: true, sound: true, autoRepeat: true, name: 'Андрей', skills },
     };
   }
   let S = load();
@@ -57,15 +66,24 @@
       const d = defaultState(), s = JSON.parse(raw);
       const st = { ...d, ...s,
         settings: { ...d.settings, ...(s.settings || {}), skills: { ...d.settings.skills, ...((s.settings || {}).skills || {}) } } };
-      // миграция со старых форматов: levels 1..3 → diff 0..1 → Difficulty state
-      let old = s.diff;
-      if (s.levels && !old) { old = {}; for (const k in s.levels) old[k] = Math.min(1, (s.levels[k] - 1) / 2 + 0.1); }
-      st.dl = s.dl ? Difficulty.normalize(s.dl) : old ? Difficulty.migrate(old) : Difficulty.create();
-      delete st.levels; delete st.streak; delete st.failStreak; delete st.diff;
+      if (!s.v || s.v < 2) {
+        // Миграция со старой версии (общий уровень сложности): звёзды, наклейки и статистику оставляем,
+        // карту начинаем заново («новая галактика»), учебную программу — с 1-й или 2-й ступени.
+        st.cur = C.migrate(s);
+        st.planets = [];
+        st.galaxy = 2;
+        st.notice = 'galaxy';
+        st.v = 2;
+        delete st.dl; delete st.levels; delete st.streak; delete st.failStreak; delete st.diff;
+      } else st.cur = C.normalize(s.cur);
+      if (!Array.isArray(st.streakAwards)) st.streakAwards = [];
+      if (!st.settings.name) st.settings.name = '';
       return st;
     } catch (e) { return defaultState(); }
   }
   function save() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(S)); } catch (e) { /* приватный режим */ } }
+  const NAME = () => (S.settings.name || '').trim();
+  const withName = (text, p) => { const n = NAME(); return n && Math.random() < (p == null ? 0.3 : p) ? `${n}, ${text.charAt(0).toLowerCase()}${text.slice(1)}` : text; };
 
   function planetInfo(i) {
     if (i < PLANETS.length) return PLANETS[i];
@@ -105,6 +123,8 @@
   }
   const SFX = {
     tap() { tone(880, 0.06, 'square', 0.06); },
+    count(n) { tone(440 * Math.pow(1.06, Math.min(n, 24)), 0.1, 'triangle', 0.14); },
+    pad(i) { tone([330, 392, 494, 587][i % 4], 0.35, 'sine', 0.2); },
     good() { tone(523, 0.12, 'sine', 0.2); tone(659, 0.12, 'sine', 0.2, 0.1); tone(784, 0.2, 'sine', 0.2, 0.2); },
     bad() { tone(180, 0.25, 'sawtooth', 0.12); },
     turbo() { [440, 554, 659, 880, 1108].forEach((f, i) => tone(f, 0.1, 'square', 0.08, i * 0.06)); },
@@ -114,18 +134,30 @@
       o.connect(g).connect(c.destination); o.start(); o.stop(c.currentTime + 1.25); },
     fanfare() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.25, 'triangle', 0.22, i * 0.15)); tone(1047, 0.6, 'triangle', 0.22, 0.6); },
     sticker() { [784, 988, 1175, 1568].forEach((f, i) => tone(f, 0.18, 'sine', 0.2, i * 0.08)); },
+    hide() { tone(600, 0.08, 'sine', 0.1); tone(400, 0.12, 'sine', 0.1, 0.08); },
   };
 
   // ---------- речь (js/speech.js) ----------
-  Speech.init({ lang: 'ru-RU', rate: 0.92, pitch: 1.05 });
+  Speech.init({ lang: 'ru-RU', rate: 0.9, pitch: 1.05 });
   Speech.setEnabled(S.settings.voice);
-  Speech.onSpeaking(on => { const f = $('face'); if (f) f.classList.toggle('talking', on); const g = document.querySelector('#intro .face'); if (g) g.classList.toggle('talking', on); });
+  Speech.onSpeaking(on => { document.querySelectorAll('.face').forEach(f => f.classList.toggle('talking', on)); });
   // speak(text) — в хвост очереди; speak(text, 'now') — прервать всё; speak(text, 'low') — только если очередь пуста
   function speak(text, mode) {
     if (!text) return;
     if (mode === 'now') Speech.say(text, { interrupt: true });
     else if (mode === 'low') Speech.say(text, { priority: 'low' });
     else Speech.say(text);
+  }
+  // вызвать fn, когда Зум договорит (или через maxMs, если озвучка молчит/выключена)
+  function afterSpeech(fn, maxMs) {
+    const t0 = Date.now();
+    const minWait = Speech.isEnabled() && Speech.available() ? 600 : 300;
+    const tick = () => {
+      const busy = Speech.isSpeaking() || Speech.pending() > 0;
+      if ((!busy && Date.now() - t0 >= minWait) || Date.now() - t0 > (maxMs || 12000)) fn();
+      else setTimeout(tick, 150);
+    };
+    setTimeout(tick, minWait);
   }
 
   // ---------- экраны ----------
@@ -141,8 +173,17 @@
   // ---------- главный экран ----------
   function renderHome() {
     $('home-stars').textContent = `⭐ ${S.stars}`;
-    const r = Difficulty.rank(S.dl);
+    const r = C.rank(S.cur);
     $('rank').innerHTML = `<span class="rank-e">${r.emoji}</span><span class="rank-n">${r.name}</span><span class="rank-bar"><i style="width:${Math.round(r.progress * 100)}%"></i></span>`;
+    renderStreak();
+    const notice = $('home-mascot');
+    if (S.notice === 'galaxy') {
+      notice.hidden = false;
+      $('home-notice').textContent = `${NAME() ? NAME() + ', ' : ''}мы прилетели в новую галактику! Звёзды и наклейки с нами, планеты здесь новые. Полетели?`;
+      speak($('home-notice').textContent, 'low');
+      S.notice = null; save();
+    } else notice.hidden = true;
+    $('galaxy-label').textContent = S.galaxy > 1 ? `Галактика ${S.galaxy}` : '';
     setTint(currentPlanet());
     const cur = currentPlanet();
     const total = Math.max(PLANETS.length, cur + 3);
@@ -171,6 +212,12 @@
       setTimeout(() => flyRocket(map.children[flight.from], map.children[flight.to]), 350);
     }
   }
+  function renderStreak() {
+    const s = C.streak(S.cur);
+    const dots = s.last7.map(d => `<i class="${d.played ? 'on' : ''}${d.today ? ' today' : ''}" title="${d.key}"></i>`).join('');
+    const text = s.streak === 0 ? (s.playedToday ? '' : 'Полетим сегодня?') : `🔥 ${s.streak} ${T.plural(s.streak, { one: 'день', few: 'дня', many: 'дней' })} подряд`;
+    $('streak').innerHTML = `<span class="streak-text">${text}</span><span class="streak-dots">${dots}</span>`;
+  }
   function flyRocket(fromEl, toEl) {
     const a = fromEl.getBoundingClientRect(), b = toEl.getBoundingClientRect();
     const r = document.createElement('div');
@@ -191,15 +238,18 @@
   // ---------- миссия ----------
   let M = null;
   function startMission(planetIdx) {
-    const tasks = T.buildMission(enabledSkills(), Difficulty.map(S.dl, enabledSkills()), TASKS_PER_MISSION);
-    M = { planet: planetIdx, tasks, idx: 0, stars: 0, bonus: 0, results: [], attempts: 0, picked: [], busy: false, combo: 0, t0: 0 };
+    clearTimers(); Speech.stop();
+    const plan = C.planMission(S.cur, enabledSkills(), TASKS_PER_MISSION);
+    const tasks = plan.map(p => Object.assign(T.generate(p.skill, p.d), { slot: p.slot, lesson: p.lesson }));
+    M = { planet: planetIdx, tasks, idx: 0, stars: 0, bonus: 0, results: [], attempts: 0, picked: [], busy: false, combo: 0, t0: 0,
+      guided: false, timers: [], mastered: [], rankUp: null };
     const p = planetInfo(planetIdx);
     $('intro-planet').textContent = p.e;
     $('intro-title').textContent = p.name;
     $('intro-story').textContent = p.story;
     setTint(planetIdx);
     show('intro');
-    speak(`Летим на планету ${p.name}! ${p.story}`, 'now');
+    speak(`${NAME() ? NAME() + ', ' : ''}летим на планету ${p.name}! ${p.story}`, 'now');
   }
   function beginTasks() {
     launchOverlay(() => { show('game'); $('face').textContent = '👽'; renderTask(); });
@@ -208,6 +258,8 @@
     const o = $('launch'); o.hidden = false; o.classList.remove('go'); void o.offsetWidth; o.classList.add('go');
     setTimeout(() => { o.hidden = true; done(); }, 1000);
   }
+  function later(fn, ms) { const id = setTimeout(fn, ms); if (M) M.timers.push(id); return id; }
+  function clearTimers() { if (M) { M.timers.forEach(clearTimeout); M.timers = []; } }
 
   function renderProgress() {
     const p = $('progress');
@@ -226,23 +278,98 @@
 
   function renderTask() {
     const t = M.tasks[M.idx];
-    M.attempts = 0; M.picked = []; M.busy = false; M.t0 = Date.now();
+    clearTimers();
+    M.attempts = 0; M.picked = []; M.busy = false; M.guided = false; M.touched = false; M.t0 = Date.now();
     renderProgress();
     $('prompt').textContent = t.prompt;
     $('scene').textContent = SCENES[t.scene] || '';
     $('feedback').textContent = ''; $('feedback').className = 'feedback';
     const hint = $('hint'); hint.hidden = true; hint.textContent = '';
+    const guide = $('guide'); guide.hidden = true; $('guide-text').textContent = ''; $('guide-count').textContent = '';
     const stage = $('stage'); stage.innerHTML = ''; stage.style.display = '';
-    const opts = $('options'); opts.innerHTML = ''; opts.className = 'options'; opts.style.gridTemplateColumns = '';
+    const opts = $('options'); opts.innerHTML = ''; opts.className = 'options'; opts.style.gridTemplateColumns = ''; opts.hidden = false;
+    $('lesson').hidden = true;
     renderStage(t, stage);
     renderOptions(t, opts);
-    const ear = $('btn-ear'); if (ear) ear.addEventListener('click', () => { SFX.tap(); speak(t.say, 'now'); });
-    stage.querySelectorAll('.obj, .coin, .sh, .cell, .tank i, .singles i').forEach((o, i) => o.style.setProperty('--i', i));
+    const ear = stage.querySelector('#btn-ear'); if (ear) ear.addEventListener('click', () => { SFX.tap(); speak(t.say, 'now'); });
+    stage.querySelectorAll('.obj, .coin, .sh, .cell, .tank i, .singles i, .dot').forEach((o, i) => o.style.setProperty('--i', i));
     [stage, opts].forEach(el => { el.classList.remove('enter'); void el.offsetWidth; el.classList.add('enter'); });
     const noStage = stage.style.display === 'none';
     opts.classList.toggle('tall', noStage);
     document.querySelector('.task').classList.toggle('collapsed', noStage);
+    if (t.lesson) showLesson(t); else presentTask(t);
+  }
+
+  // Урок: Зум объясняет правило перед первым заданием нового навыка. Варианты спрятаны до «Понятно».
+  function showLesson(t) {
+    $('scene').textContent = '🎓 Зум объясняет';
+    $('prompt').textContent = T.LESSONS[t.skill];
+    $('options').hidden = true;
+    $('lesson').hidden = false;
+    face('🤓');
+    speak(`${NAME() ? NAME() + ', ' : ''}новое задание! ${T.LESSONS[t.skill]}`, 'now');
+    const ok = $('btn-lesson-ok');
+    ok.onclick = () => {
+      SFX.tap(); $('lesson').hidden = true; $('options').hidden = false;
+      C.markIntro(S.cur, t.skill); save();
+      $('scene').textContent = SCENES[t.scene] || ''; $('prompt').textContent = t.prompt;
+      face('👽');
+      M.t0 = Date.now();
+      presentTask(t);
+    };
+  }
+
+  // Показать задание: озвучить, запустить «показ-и-спрятать» для памяти/вспышки, таймер автоповтора
+  function presentTask(t) {
+    const d = t.display;
+    if (d.type === 'flash') {
+      $('options').hidden = true;
+      speak(t.say, 'now');
+      later(() => {
+        const f = $('stage').querySelector('.flash'); if (f) f.classList.add('covered');
+        SFX.hide(); $('options').hidden = false; armRepeat(t);
+      }, d.showMs);
+      return;
+    }
+    if (d.type === 'memory') {
+      $('options').hidden = true;
+      speak(t.say, 'now');
+      later(() => hideMemoryItem(t, () => { speak(t.afterHideSay, 'now'); $('options').hidden = false; armRepeat(t); }), d.showMs);
+      return;
+    }
+    if (d.type === 'simon') {
+      speak(t.say, 'now');
+      M.busy = true;
+      later(() => playSimon(t, d.stepMs, () => { M.busy = false; M.picked = []; speak(t.afterShowSay, 'now'); armRepeat(t); }), 900);
+      return;
+    }
     speak(t.say, 'now');
+    armRepeat(t);
+  }
+  function armRepeat(t) {
+    if (!S.settings.autoRepeat) return;
+    later(() => {
+      if (!M || M.touched || M.busy || M.guided || M.tasks[M.idx] !== t) return;
+      face('🤔', 2000);
+      speak(withName(t.sayShort, 0.5), 'low');
+    }, REPEAT_AFTER_MS);
+  }
+  function hideMemoryItem(t, done) {
+    const items = $('stage').querySelectorAll('.memo .obj');
+    const el = items[t.display.hideIdx];
+    if (el) { el.classList.add('gone'); el.textContent = '❔'; }
+    SFX.hide();
+    setTimeout(done, 300);
+  }
+  function playSimon(t, stepMs, done) {
+    const pads = [...document.querySelectorAll('#options .opt.pad')];
+    const seq = t.display.seq;
+    const lbl = $('stage').querySelector('.simon-stage'); if (lbl) lbl.textContent = '👀 Смотри и запоминай';
+    seq.forEach((p, i) => {
+      later(() => { pads[p].classList.add('lit'); SFX.pad(p); }, i * stepMs);
+      later(() => pads[p].classList.remove('lit'), i * stepMs + stepMs * 0.65);
+    });
+    later(() => { if (lbl) lbl.textContent = '👉 Твой ход!'; done(); }, seq.length * stepMs + 200);
   }
 
   // --- визуальная часть задания ---
@@ -262,13 +389,25 @@
       (g.label ? `<div class="glabel"><b>${g.label}</b>${objsHTML(g, extra)}</div>` : objsHTML(g, extra))
     ).join('<span class="plus">+</span>') + '</div>';
   }
+  const DICE = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+  function diceHTML(n) {
+    const on = new Set(DICE[n] || []);
+    return `<div class="die">${Array.from({ length: 9 }, (_, i) => on.has(i) ? '<i class="dot"></i>' : '<i></i>').join('')}</div>`;
+  }
+  function tenFrameHTML(n) {
+    return `<div class="tenframe">${Array.from({ length: 10 }, (_, i) => i < n ? '<i class="dot"></i>' : '<i></i>').join('')}</div>`;
+  }
+  function seqHTML(d) {
+    return '<div class="radar"><div class="seq' + (d.hideLine ? ' hidden-line' : '') + (d.seq.length >= 6 ? ' compact' : '') + '">' + d.seq.map((v, i) =>
+      `<div class="cell${i === d.idx ? ' gap' : ''}${i === d.focus || i === d.focus2 ? ' focus' : ''}" data-i="${i}" data-say="${W(v)}">${i === d.idx ? '?' : v}</div>`).join('') + '</div></div>';
+  }
   function renderStage(t, stage) {
     const d = t.display;
     switch (d.type) {
       case 'objects':
         stage.innerHTML = `<div class="porthole">${groupsHTML(d.groups)}</div>`; break;
       case 'expr':
-        stage.innerHTML = `<div class="expr">${d.text.replace('?', '<span class="q">?</span>')}</div>` +
+        stage.innerHTML = `<div class="expr${d.text.length > 10 ? ' long' : ''}">${d.text.replace('?', '<span class="q">?</span>')}</div>` +
           `<div class="expr-objs" ${d.showObjects ? '' : 'hidden'}>${groupsHTML(d.groups, { crossed: true })}</div>`;
         break;
       case 'story':
@@ -288,37 +427,32 @@
           `<div class="cmp-dots" id="cmp-dots" hidden><div class="dots">${'<i></i>'.repeat(d.a)}</div><div class="dots">${'<i></i>'.repeat(d.b)}</div></div>`;
         break;
       case 'sequence':
-        stage.innerHTML = '<div class="radar"><div class="seq">' + d.seq.map((v, i) =>
-          `<div class="cell${i === d.idx ? ' gap' : ''}" data-i="${i}">${i === d.idx ? '?' : v}</div>`).join('') + '</div></div>';
-        break;
-      case 'neighbors':
-        stage.innerHTML = `<div class="seq big"><div class="cell">${d.after ? d.n : '?'}</div><div class="cell gap">${d.after ? '?' : d.n}</div></div>`.replace(
-          d.after ? '<div class="cell gap">?</div>' : '<div class="cell">?</div>', d.after ? '<div class="cell gap">?</div>' : '<div class="cell gap">?</div>') +
-          `<div class="seq small" id="nb-line" hidden>${[-2, -1, 0, 1, 2].map(k => { const v = d.n + k; return v < 0 ? '' : `<div class="cell${v === (d.after ? d.n + 1 : d.n - 1) ? ' gap' : ''}">${v === (d.after ? d.n + 1 : d.n - 1) ? '?' : v}</div>`; }).join('')}</div>`;
-        break;
+        stage.innerHTML = seqHTML(d); break;
       case 'numline':
         stage.innerHTML = numlineSVG(d.max, d.n, d.labelEvery); break;
       case 'sequence-emoji':
-        stage.innerHTML = '<div class="runway"><div class="seq">' + d.seq.map((v, i) =>
-          `<div class="cell emoji" data-g="${Math.floor(i / d.unitLen) % 2}">${v}</div>`).join('') + '<div class="cell gap">?</div></div></div>';
+        stage.innerHTML = '<div class="runway"><div class="seq' + (d.seq.length >= 6 ? ' compact' : '') + '">' + d.seq.map((v, i) =>
+          `<div class="cell emoji" data-g="${Math.floor(i / d.unitLen) % 2}" data-say="${d.names[i]}">${v}</div>`).join('') + '<div class="cell gap">?</div></div></div>';
         break;
       case 'shapes':
         stage.innerHTML = '<div class="shapes-grid">' + d.items.map(it =>
           `<div class="sh" data-t="${it.shape === d.target ? 1 : 0}">${shapeSVG(it.shape, it.color)}</div>`).join('') + '</div>';
         break;
+      case 'sample':
+        stage.innerHTML = `<div class="sample">${shapeSVG(d.shape, d.color)}<small>образец</small></div>`; break;
       case 'clock':
-        stage.innerHTML = clockSVG(d.h, d.m) + `<div class="digital" id="digital" hidden>${d.h}:${String(d.m).padStart(2, '0')}</div>`;
+        stage.innerHTML = clockSVG(d.h, d.m) + `<div class="digital" id="digital" hidden>${d.m === 0 ? T.timeName(d.h, 0) : `${d.h}:${String(d.m).padStart(2, '0')}`}</div>`;
         break;
       case 'coins':
         stage.innerHTML = `<div class="shop-item"><span>${d.item.e}</span><small>${d.item.name}</small></div>` +
-          '<div class="coins">' + d.coins.map(c => `<div class="coin c${c}">${c}</div>`).join('') + '</div>' +
+          '<div class="coins">' + d.coins.map(c => `<div class="coin c${c}" data-v="${c}">${c}</div>`).join('') + '</div>' +
           `<div class="coin-sum" id="coin-sum" hidden>${d.coins.join(' + ')} = ?</div>`;
         break;
       case 'share': {
         let objs = '';
         for (let i = 0; i < d.n; i++) objs += `<span class="obj share-obj" data-p="${i % 2}">${d.emoji}</span>`;
         stage.innerHTML = `<div class="share"><div class="objs${d.n > 5 ? ' rows5' : ''}">${objs}</div>` +
-          `<div class="share-rockets"><div class="srocket r0">🚀<b id="share-a"></b></div><div class="srocket r1">🚀<b id="share-b"></b></div></div></div>`;
+          `<div class="share-rockets"><div class="srocket r0">🚀<b id="share-a">0</b></div><div class="srocket r1">🚀<b id="share-b">0</b></div></div></div>`;
         break; }
       case 'diff': {
         const [g1, g2] = d.groups;
@@ -332,15 +466,20 @@
         stage.innerHTML = `<div class="tens"><div class="ten-box">${'<i></i>'.repeat(10)}<b>10</b></div><span class="plus">+</span><div class="singles">${singles}</div></div>` +
           `<div class="tens-text">${d.mode === 'sum' ? `10 + ${d.x}` : `${10 + d.x} = 10 + ?`}</div>`;
         break; }
-      case 'between':
-        stage.innerHTML = `<div class="between"><span class="n">${d.lo}</span><span class="lt">&lt;</span><span class="q">?</span><span class="lt">&lt;</span><span class="n">${d.hi}</span></div>` +
-          `<div id="between-line" hidden>${numlineSVG(d.max, null, 1, { lo: d.lo, hi: d.hi })}</div>`;
-        break;
       case 'listen':
         stage.innerHTML = `<button class="ear" id="btn-ear" aria-label="Повторить число">🔊</button><div class="listen-word" id="listen-word" ${Speech.isEnabled() && Speech.available() ? 'hidden' : ''}>${d.word}</div>`;
         break;
       case 'corners':
         stage.innerHTML = `<div class="corner-shape">${shapeSVG(d.shape, d.color, true)}</div>`;
+        break;
+      case 'flash':
+        stage.innerHTML = `<div class="flash ${d.pattern}">${d.pattern === 'dice' ? diceHTML(d.n) : d.pattern === 'ten' ? tenFrameHTML(d.n) : diceHTML(d.dice2[0]) + diceHTML(d.dice2[1])}<div class="cover">🙈</div></div>`;
+        break;
+      case 'memory':
+        stage.innerHTML = `<div class="memo"><div class="objs">${d.items.map((e, i) => `<span class="obj" data-i="${i}">${e}</span>`).join('')}</div></div>`;
+        break;
+      case 'simon':
+        stage.innerHTML = `<div class="simon-stage">👀 Смотри и запоминай</div>`;
         break;
       default:
         stage.style.display = 'none';
@@ -361,8 +500,8 @@
       heart: '<path d="M50 90 L14 52 A20 20 0 0 1 50 26 A20 20 0 0 1 86 52 Z"/>',
     }[id] || `<polygon points="${POLY[id].map(q => q.join(',')).join(' ')}"/>`;
     const dots = withDots && POLY[id] && id !== 'star' ? POLY[id].map(([x, y], i) =>
-      `<g class="corner-dot" hidden><circle cx="${x}" cy="${y}" r="7" fill="#ff5c8a" stroke="#fff" stroke-width="2"/><text x="${x}" y="${y}" font-size="8" font-weight="900" fill="#fff" text-anchor="middle" dominant-baseline="central">${i + 1}</text></g>`).join('') : '';
-    return `<svg viewBox="-8 -8 116 116" fill="${color}" stroke="rgba(0,0,0,.25)" stroke-width="3">${p}${dots}</svg>`;
+      `<g class="corner-dot" hidden><circle cx="${x}" cy="${y}" r="9" fill="#ff5c8a" stroke="#fff" stroke-width="2"/><text x="${x}" y="${y}" font-size="9" font-weight="900" fill="#fff" text-anchor="middle" dominant-baseline="central"></text></g>`).join('') : '';
+    return `<svg viewBox="-10 -10 120 120" fill="${color}" stroke="rgba(0,0,0,.25)" stroke-width="3">${p}${dots}</svg>`;
   }
   function clockSVG(h, m) {
     let ticks = '';
@@ -378,11 +517,10 @@
       <line x1="50" y1="50" x2="${50 + 32 * Math.cos(ma)}" y2="${50 + 32 * Math.sin(ma)}" stroke="#4cc9f0" stroke-width="4" stroke-linecap="round"/>
       <circle cx="50" cy="50" r="3.5" fill="#fff"/></svg>`;
   }
-  function numlineSVG(max, n, every, range) {
-    const W = 340, pad = 18, step = (W - 2 * pad) / max;
-    let s = `<svg class="numline" viewBox="0 0 ${W} 122">`;
-    if (range) s += `<rect x="${pad + range.lo * step}" y="40" width="${(range.hi - range.lo) * step}" height="50" rx="8" fill="rgba(255,210,63,.18)" stroke="#ffd23f" stroke-dasharray="4 3"/>`;
-    s += `<line x1="${pad}" y1="70" x2="${W - pad}" y2="70" stroke="#a9b1d6" stroke-width="3"/>`;
+  function numlineSVG(max, n, every) {
+    const Wd = 340, pad = 18, step = (Wd - 2 * pad) / max;
+    let s = `<svg class="numline" viewBox="0 0 ${Wd} 122">`;
+    s += `<line x1="${pad}" y1="70" x2="${Wd - pad}" y2="70" stroke="#a9b1d6" stroke-width="3"/>`;
     for (let i = 0; i <= max; i++) {
       const x = pad + i * step, big = i % 5 === 0;
       s += `<line x1="${x}" y1="${big ? 58 : 63}" x2="${x}" y2="${big ? 82 : 77}" stroke="#fff" stroke-width="${big ? 3 : 2}"/>`;
@@ -414,6 +552,7 @@
     if (t.options.length === 4) box.classList.add('cols2');
     if (t.options[0].row) { box.className = 'options row'; box.style.gridTemplateColumns = `repeat(${t.options.length}, minmax(0, 1fr))`; }
     if (t.options[0].bar) box.className = 'options bars';
+    if (t.options[0].pad != null) box.className = 'options cols2 pads';
     t.options.forEach((o, i) => {
       const b = document.createElement('button');
       b.className = 'opt';
@@ -421,15 +560,17 @@
         b.classList.add('bar');
         b.innerHTML = `<span class="bar-body" style="width:${o.bar}%"><span class="bar-tail">🔥</span><span class="bar-nose">🚀</span></span><span class="bar-len" hidden>${o.bar}</span>`;
       } else if (o.row) { b.classList.add('emoji', 'rowitem'); b.innerHTML = `<span>${o.label}</span><span class="ord-num" hidden>${i + 1}</span>`; }
+      else if (o.pad != null) { b.classList.add('emoji', 'pad'); b.textContent = o.label; }
       else if (o.shape) {
         b.classList.add('shape');
         const s = T.SHAPES.find(x => x.id === o.shape);
         b.innerHTML = shapeSVG(o.shape, o.color) + `<span class="lbl" hidden>${s.name}</span>`;
       } else if (o.emoji) { b.classList.add('emoji'); b.textContent = o.label; }
       else if (o.word) { b.classList.add('asteroid', 'signbtn'); b.innerHTML = `<span>${o.label}</span><small>${o.word}</small>`; }
-      else { b.classList.add('asteroid'); b.textContent = o.label; }
+      else { b.classList.add('asteroid'); if (String(o.label).length > 3) b.classList.add('txt'); b.textContent = o.label; }
       b.dataset.value = String(o.value); b.dataset.i = String(i);
       if (t.kind === 'order') b.addEventListener('click', () => onOrderTap(t, b, o.value));
+      else if (t.kind === 'sequence') b.addEventListener('click', () => onPadTap(t, b, o.value));
       else b.addEventListener('click', () => onChoice(t, b, o.value));
       box.appendChild(b);
     });
@@ -437,7 +578,8 @@
 
   // --- обработка ответа ---
   function onChoice(t, btn, value) {
-    if (M.busy) return;
+    if (M.busy || M.guided) return;
+    M.touched = true;
     if (value === t.answer) return correct(t, btn);
     wrong(t, btn);
   }
@@ -476,9 +618,12 @@
       stage.querySelectorAll('.tank i.empty').forEach((c, i) => setTimeout(() => { c.classList.add('full'); c.textContent = ''; }, 80 * i));
       const r = stage.querySelector('.rocket-big'); if (r) r.classList.add('liftoff');
     } else if (d.type === 'share') {
-      stage.querySelectorAll('.share-obj').forEach((o, i) => { o.classList.add('to-r' + (i % 2)); o.style.setProperty('--i', i); });
+      stage.querySelectorAll('.share-obj:not(.moved)').forEach((o, i) => { o.classList.add('to-r' + (i % 2)); o.style.setProperty('--i', i); });
+    } else if (d.type === 'flash') {
+      const f = stage.querySelector('.flash'); if (f) f.classList.remove('covered');
+      stage.querySelectorAll('.dot').forEach((o, i) => { o.classList.add('bounce'); o.style.setProperty('--i', i); });
     } else {
-      stage.querySelectorAll('.obj, .coin, .sh, .cell').forEach((o, i) => { o.classList.add('bounce'); o.style.setProperty('--i', i); });
+      stage.querySelectorAll('.obj, .coin, .sh, .cell, .dot').forEach((o, i) => { o.classList.add('bounce'); o.style.setProperty('--i', i); });
     }
   }
   function wrong(t, btn) {
@@ -486,15 +631,12 @@
     btn.classList.add('wrong', 'shake');
     SFX.bad();
     face('🤔', 1500);
-    if (M.attempts === 1) {
-      showHint(t);
-      fb('Попробуй ещё раз', 'bad');
-      speak(t.hint.say);
-    } else {
+    if (M.attempts === 1) startGuide(t);
+    else {
       M.busy = true;
       fb(`Ответ: ${t.explain}`, 'bad');
       revealAnswer(t);
-      speak(`Правильный ответ: ${t.explainSay || t.explain}. Ничего, в следующий раз получится!`);
+      speak(`Правильный ответ: ${t.explainSay || t.explain}. Ничего, в следующий раз получится!`, 'now');
       finishTask(t, 0, 4200);
     }
   }
@@ -508,8 +650,165 @@
     const f = $('feedback'); f.textContent = text; f.className = 'feedback pop ' + cls;
   }
 
+  // ===== режим «вместе»: после первой ошибки варианты прячутся, ребёнок делает руками =====
+  function startGuide(t) {
+    const g = t.guide;
+    M.guided = true;
+    clearTimers();
+    const opts = $('options');
+    opts.classList.add('guided');
+    const panel = $('guide'); panel.hidden = false;
+    $('guide-text').textContent = g.say; $('guide-count').textContent = '';
+    fb('Давай вместе', 'bad');
+    if (g.reveal) showHint(t);
+    const intro = `${NAME() ? 'Не спеши, ' + NAME() + '. ' : 'Не спеши. '}${g.say}`;
+    speak(intro, 'now');
+    switch (g.mode) {
+      case 'count': guideCount(t, g, false); break;
+      case 'sum': guideCount(t, g, true); break;
+      case 'share': guideShare(t, g); break;
+      case 'walk': guideWalk(t, g); break;
+      case 'replay': guideReplay(t, g); break;
+      default: // 'show': только показ и объяснение
+        showHint(t);
+        afterSpeech(() => endGuide(t), 15000);
+    }
+  }
+  function endGuide(t, keepPanel) {
+    if (!M || M.tasks[M.idx] !== t) return;
+    M.guided = false;
+    $('options').classList.remove('guided');
+    if (!keepPanel) { /* панель с итогом остаётся видимой, чтобы ребёнок прочитал число */ }
+    document.querySelectorAll('#game .tgt').forEach(el => el.classList.remove('tgt', 'next-hint'));
+    if (t.kind === 'sequence') { M.picked = []; M.busy = false; }
+    fb('Теперь нажми ответ', 'ok');
+    armRepeat(t);
+  }
+  function guideDone(t, g) {
+    $('guide-text').textContent = g.doneSay || '';
+    later(() => speak(g.doneSay, 'now'), 350);
+    afterSpeech(() => endGuide(t), 15000);
+  }
+  function targetsOf(sel) { return [...document.querySelectorAll('#game ' + sel.split(',').map(s => s.trim()).join(', #game '))]; }
+  const groupOf = el => el.closest('.objs, .dots, .glabel, .die, .tenframe') || el.parentElement;
+
+  // Пересчёт тапами: каждый предмет нумеруется, Зум называет число. perGroup — счёт в каждой кучке отдельно.
+  function guideCount(t, g, sum) {
+    const targets = targetsOf(g.targets);
+    const wrongs = g.wrongTargets ? targetsOf(g.wrongTargets) : [];
+    let n = g.start || 0, done = 0;
+    const groups = new Map();
+    const total = targets.length;
+    $('guide-count').textContent = sum ? '' : (g.start ? String(g.start) : '');
+    targets.forEach(el => {
+      el.classList.add('tgt');
+      el.addEventListener('click', ev => {
+        ev.stopPropagation(); ev.preventDefault();
+        if (el.classList.contains('counted') || !M.guided) return;
+        let value;
+        if (sum) { n += Number(el.dataset.v) || 0; value = n; }
+        else if (g.perGroup) { const grp = groupOf(el); const c = (groups.get(grp) || 0) + 1; groups.set(grp, c); value = c; }
+        else { n++; value = n; }
+        done++;
+        el.classList.add('counted');
+        const badge = document.createElement('span'); badge.className = 'cnt-badge'; badge.textContent = value;
+        if (el.tagName.toLowerCase() === 'g') { const tx = el.querySelector('text'); if (tx) tx.textContent = value; el.classList.add('shown'); }
+        else el.appendChild(badge);
+        SFX.count(done);
+        Speech.say(W(value), { interrupt: true });
+        if (sum) { $('guide-count').textContent = String(n); const cs = $('coin-sum'); if (cs) { cs.hidden = false; cs.textContent = targets.filter(x => x.classList.contains('counted')).map(x => x.dataset.v).join(' + ') + ' = ' + n; } }
+        else if (g.perGroup) {
+          const grp = groupOf(el);
+          const left = targets.filter(x => groupOf(x) === grp && !x.classList.contains('counted')).length;
+          if (!left) { const lab = document.createElement('b'); lab.className = 'gcount'; lab.textContent = value; grp.appendChild(lab);
+            const cnt = grp.closest('.opt') && grp.closest('.opt').querySelector('.cnt'); if (cnt) { cnt.hidden = false; cnt.textContent = value; } }
+          $('guide-count').textContent = [...groups.values()].join(' и ');
+        } else $('guide-count').textContent = String(n);
+        if (done >= total) { M.guided = 'done'; guideDone(t, g); }
+      });
+    });
+    wrongs.forEach(el => el.addEventListener('click', ev => {
+      ev.stopPropagation();
+      if (!M.guided) return;
+      el.classList.add('shake'); setTimeout(() => el.classList.remove('shake'), 400); SFX.bad();
+      speak(g.wrongSay || 'Это не считаем.', 'now');
+    }));
+    if (!total) guideDone(t, g);
+  }
+
+  // Поровну: тапы раздают предметы по двум ракетам
+  function guideShare(t, g) {
+    const targets = targetsOf(g.targets);
+    const counts = [0, 0];
+    let k = 0;
+    targets.forEach(el => {
+      el.classList.add('tgt');
+      el.addEventListener('click', ev => {
+        ev.stopPropagation();
+        if (el.classList.contains('moved') || !M.guided) return;
+        const p = k % 2; k++;
+        counts[p]++;
+        el.classList.add('moved', 'to-r' + p); el.style.setProperty('--i', 0);
+        $(p ? 'share-b' : 'share-a').textContent = counts[p];
+        $('stage').querySelectorAll('.srocket b').forEach(b => b.style.display = 'block');
+        SFX.count(k);
+        Speech.say(p ? `во вторую, ${W(counts[1])}` : `в первую, ${W(counts[0])}`, { interrupt: true });
+        $('guide-count').textContent = `${counts[0]} и ${counts[1]}`;
+        if (k >= targets.length) { M.guided = 'done'; guideDone(t, g); }
+      });
+    });
+  }
+
+  // Дорожка: нажимать ячейки строго по порядку до пропуска
+  function guideWalk(t, g) {
+    let targets = targetsOf(g.targets);
+    if (g.reverse) targets = targets.slice().reverse();
+    const path = targets.slice(0, g.upto);
+    let e = 0;
+    const hintNext = () => { targets.forEach(x => x.classList.remove('next-hint')); if (path[e]) path[e].classList.add('next-hint'); };
+    targets.forEach((el, i) => {
+      el.classList.add('tgt');
+      el.addEventListener('click', ev => {
+        ev.stopPropagation(); ev.preventDefault();
+        if (!M.guided || M.guided === 'done') return;
+        if (el === path[e]) {
+          el.classList.add('walked');
+          const say = g.ordinal ? ORD_SAY[e] : (el.dataset.say || el.textContent.trim());
+          SFX.count(e + 1);
+          Speech.say(say, { interrupt: true });
+          $('guide-count').textContent = g.ordinal ? ORD_SAY[e] : (el.dataset.say ? el.textContent.trim() : '');
+          e++;
+          if (e >= path.length) { targets.forEach(x => x.classList.remove('next-hint')); M.guided = 'done'; guideDone(t, g); }
+          else hintNext();
+        } else {
+          el.classList.add('shake'); setTimeout(() => el.classList.remove('shake'), 400); SFX.bad();
+        }
+      });
+    });
+    if (!path.length) { M.guided = 'done'; guideDone(t, g); return; }
+    hintNext();
+  }
+
+  // Память: показать ещё раз
+  function guideReplay(t, g) {
+    const d = t.display;
+    if (d.type === 'memory') {
+      const items = $('stage').querySelectorAll('.memo .obj');
+      const el = items[d.hideIdx];
+      afterSpeech(() => {
+        if (el) { el.classList.remove('gone'); el.textContent = d.items[d.hideIdx]; el.classList.add('pop'); }
+        later(() => hideMemoryItem(t, () => { M.guided = 'done'; guideDone(t, g); }), d.showMs);
+      }, 8000);
+    } else if (d.type === 'simon') {
+      M.picked = [];
+      afterSpeech(() => playSimon(t, d.stepMs + 250, () => { M.guided = 'done'; guideDone(t, g); }), 8000);
+    } else { M.guided = 'done'; guideDone(t, g); }
+  }
+
+  // --- «по порядку» (стыковка / обратный отсчёт) ---
   function onOrderTap(t, btn, value) {
     if (M.busy || btn.classList.contains('picked')) return;
+    M.touched = true;
     const expected = t.answer[M.picked.length];
     if (value === expected) {
       SFX.tap();
@@ -525,7 +824,7 @@
       M.attempts++;
       btn.classList.add('shake'); setTimeout(() => btn.classList.remove('shake'), 400);
       SFX.bad(); face('🤔', 1500);
-      if (M.attempts === 1) { showHint(t); fb('Не то число', 'bad'); speak(t.hint.say); hintNextOrder(t); }
+      if (M.attempts === 1) { fb('Не то число', 'bad'); $('guide').hidden = false; $('guide-text').textContent = t.guide.say; speak(t.guide.say, 'now'); hintNextOrder(t); }
       else if (M.attempts >= 3) {
         M.busy = true;
         fb(`Порядок: ${t.explain}`, 'bad');
@@ -533,7 +832,7 @@
           const k = t.answer.indexOf(Number(b.dataset.value));
           b.classList.add('picked'); b.innerHTML = `<span class="ord">${k + 1}</span>${b.dataset.value}`;
         });
-        speak(`Правильный порядок: ${t.answer.join(', ')}`);
+        speak(`Правильный порядок: ${t.answer.join(', ')}`, 'now');
         finishTask(t, 0, 3600);
       } else { fb('Не то число', 'bad'); hintNextOrder(t); }
     }
@@ -545,54 +844,66 @@
     });
   }
 
-  // --- подсказки ---
+  // --- «повтори огни» ---
+  function onPadTap(t, btn, value) {
+    if (M.busy || M.guided) return;
+    M.touched = true;
+    const expected = t.answer[M.picked.length];
+    btn.classList.add('lit'); setTimeout(() => btn.classList.remove('lit'), 250);
+    if (value === expected) {
+      SFX.pad(value);
+      M.picked.push(value);
+      if (M.picked.length === t.answer.length) {
+        M.busy = true;
+        btn.classList.add('right');
+        flyStars(btn, M.attempts === 0 ? 2 : 1);
+        finishTask(t, M.attempts === 0 ? 2 : 1);
+      }
+    } else {
+      M.attempts++;
+      SFX.bad(); face('🤔', 1500);
+      btn.classList.add('shake'); setTimeout(() => btn.classList.remove('shake'), 400);
+      if (M.attempts === 1) { M.picked = []; startGuide(t); }
+      else {
+        M.busy = true;
+        fb(`Порядок: ${t.explain}`, 'bad');
+        speak(`Вот правильный порядок: ${t.explainSay}.`, 'now');
+        playSimon(t, 700, () => finishTask(t, 0, 600));
+      }
+    }
+  }
+
+  // --- визуальные подсказки (используются режимом «вместе» с reveal и режимом show) ---
   function showHint(t) {
-    const h = $('hint');
-    h.hidden = false; h.textContent = t.hint.say;
     const stage = $('stage');
     switch (t.hint.type) {
-      case 'number-objects':
-        stage.innerHTML = `<div class="porthole">${groupsHTML(t.display.groups, { numbered: true })}</div>`; break;
       case 'show-objects': {
         const box = stage.querySelector('.expr-objs'); if (box) box.hidden = false;
+        const nums = stage.querySelector('.story-nums'); if (nums) nums.hidden = true;
         break; }
-      case 'fuel-count':
-        stage.querySelectorAll('.tank i.empty').forEach(c => { c.textContent = c.dataset.i; }); break;
       case 'pair-counts':
         document.querySelectorAll('#options .cnt').forEach(c => c.hidden = false); break;
       case 'compare-objects': {
         const dd = $('cmp-dots'); if (dd) dd.hidden = false; break; }
-      case 'seq-neighbors':
-        stage.querySelectorAll(`.cell[data-i="${t.display.idx - 1}"], .cell[data-i="${t.display.idx + 1}"]`).forEach(c => c.classList.add('neigh')); break;
-      case 'neighbors-line': {
-        const l = $('nb-line'); if (l) l.hidden = false; break; }
+      case 'seq-neighbors': {
+        const line = stage.querySelector('.seq'); if (line) line.classList.remove('hidden-line');
+        stage.querySelectorAll(`.cell[data-i="${t.display.idx - 1}"], .cell[data-i="${t.display.idx + 1}"]`).forEach(c => c.classList.add('neigh')); break; }
       case 'numline-labels':
         stage.querySelectorAll('.nl-label.hid').forEach(x => x.classList.remove('hid')); break;
       case 'pattern-groups':
         stage.querySelectorAll('.cell[data-g]').forEach(c => c.classList.add('g' + c.dataset.g)); break;
       case 'shape-names':
         document.querySelectorAll('#options .lbl').forEach(l => l.hidden = false); break;
-      case 'shape-highlight': {
-        let n = 0;
-        stage.querySelectorAll('.sh').forEach(s => {
-          if (s.dataset.t === '1') s.insertAdjacentHTML('beforeend', `<span class="num">${++n}</span>`);
-          else s.classList.add('dim');
-        });
-        break; }
+      case 'shape-highlight':
+        stage.querySelectorAll('.sh').forEach(s => { if (s.dataset.t !== '1') s.classList.add('dim'); }); break;
       case 'clock-digits': {
         const d = $('digital'); if (d) d.hidden = false; break; }
       case 'coins-sum': {
         const c = $('coin-sum'); if (c) c.hidden = false; break; }
       case 'order-next': hintNextOrder(t); break;
-      case 'share-pairs':
-        stage.querySelectorAll('.share-obj').forEach(o => o.classList.add('p' + o.dataset.p));
-        stage.querySelectorAll('.srocket').forEach((r, i) => r.classList.add('r' + i + '-on')); break;
       case 'diff-highlight':
         stage.querySelectorAll('.diff-extra').forEach(o => o.classList.add('on')); break;
-      case 'tens-count':
-        stage.querySelectorAll('.singles i').forEach(i => { i.textContent = i.dataset.n; }); break;
-      case 'between-line': {
-        const l = $('between-line'); if (l) l.hidden = false; break; }
+      case 'tens-count': break; // номера 11, 12… появляются на единицах в режиме «вместе»
       case 'listen-word': {
         const w = $('listen-word'); if (w) w.hidden = false; break; }
       case 'ordinal-numbers': {
@@ -607,11 +918,14 @@
         break; }
       case 'corners-dots':
         stage.querySelectorAll('.corner-dot').forEach(g => g.removeAttribute('hidden')); break;
+      case 'flash-reveal': {
+        const f = stage.querySelector('.flash'); if (f) f.classList.remove('covered'); break; }
     }
   }
 
   // --- завершение задания ---
   function finishTask(t, stars, delay) {
+    clearTimers();
     const seconds = (Date.now() - M.t0) / 1000;
     M.results[M.idx] = stars;
     M.stars += stars;
@@ -624,33 +938,35 @@
       if (M.combo === 4 || M.combo === 8) { M.bonus++; S.stars++; msg += ' +1 бонус'; }
       fb(msg, 'ok');
       Speech.clearPending();
-      speak(M.combo === 3 ? 'Турбо! Три подряд!' : M.combo === 6 ? 'Шесть подряд! Ты просто ракета!' : praise, 'low');
+      const sayPraise = M.combo === 3 ? 'Турбо! Три подряд!' : M.combo === 6 ? 'Шесть подряд! Ты просто ракета!' : stars === 1 ? 'Да! Вместе получилось.' : withName(praise, 0.25);
+      speak(sayPraise, stars === 1 ? 'now' : 'low');
     }
-    recordStat(t.skill, stars, seconds);
+    const res = recordStat(t.skill, stars, seconds);
     renderProgress();
-    setTimeout(() => {
+    let extra = 0;
+    if (res.mastered) {
+      extra = 1800;
+      later(() => { fb(`🏅 Освоено: ${T.SKILLS[t.skill].name}!`, 'ok'); SFX.sticker(); speak(`${NAME() ? NAME() + ', ' : ''}ты освоил: ${T.SKILLS[t.skill].name.toLowerCase()}!`, 'now'); }, 900);
+    }
+    later(() => {
       M.idx++;
       if (M.idx < M.tasks.length) renderTask(); else finishMission();
-    }, delay || (stars > 0 ? 1100 : 2000));
+    }, (delay || (stars > 0 ? 1100 : 2000)) + extra);
   }
 
   function recordStat(skill, stars, seconds) {
-    const st = S.stats[skill] || (S.stats[skill] = { asked: 0, first: 0, second: 0, fail: 0 });
-    st.asked++;
+    const st = S.stats[skill] || (S.stats[skill] = { asked: 0, first: 0, second: 0, fail: 0, sec: 0 });
+    st.asked++; st.sec = (st.sec || 0) + Math.min(60, seconds);
     if (stars === 2) st.first++; else if (stars === 1) st.second++; else st.fail++;
-    if (S.settings.adaptive) {
-      const before = Difficulty.rank(S.dl).level;
-      Difficulty.update(S.dl, skill, stars, seconds);
-      // общий уровень изменился — оставшиеся задания миссии перегенерируем под новую сложность
-      for (let i = M.idx + 1; i < M.tasks.length; i++) M.tasks[i] = T.generate(M.tasks[i].skill, Difficulty.effective(S.dl, M.tasks[i].skill));
-      const r = Difficulty.rank(S.dl);
-      if (r.level > before) M.rankUp = r;
-    }
+    const res = C.record(S.cur, skill, stars, seconds);
+    if (res.promoted) M.rankUp = C.rank(S.cur);
+    if (res.mastered) M.mastered.push(skill);
     save();
+    return res;
   }
 
   function finishMission() {
-    const rating = M.stars >= 14 ? 3 : M.stars >= 10 ? 2 : M.stars >= 6 ? 1 : 0;
+    const rating = M.stars >= THREE_STARS ? 3 : M.stars >= TWO_STARS ? 2 : M.stars >= OPEN_STARS ? 1 : 0;
     const prev = S.planets[M.planet] || { stars: 0, rating: 0 };
     const firstClear = prev.rating === 0 && rating > 0;
     const before = currentPlanet();
@@ -662,8 +978,15 @@
     if (after !== before) S.lastFlight = { from: before, to: after };
     const skillsSummary = {};
     M.tasks.forEach((t, i) => { const k = skillsSummary[t.skill] || (skillsSummary[t.skill] = [0, 0]); k[0] += M.results[i]; k[1] += 2; });
-    S.history.unshift({ d: Date.now(), planet: M.planet, stars: M.stars, skills: skillsSummary });
-    S.history = S.history.slice(0, 20);
+    S.history.unshift({ d: Date.now(), planet: M.planet, stars: M.stars, stage: S.cur.stage, skills: skillsSummary });
+    S.history = S.history.slice(0, 30);
+    // серия дней: награда за рубежи
+    const sk = C.streak(S.cur);
+    let streakAward = null;
+    for (let i = 0; i < STREAK_MILESTONES.length; i++) {
+      const m = STREAK_MILESTONES[i];
+      if (sk.streak >= m && !S.streakAwards.includes(m)) { S.streakAwards.push(m); streakAward = { days: m, e: STREAK_STICKERS[i] }; }
+    }
     save();
 
     const p = planetInfo(M.planet);
@@ -671,16 +994,20 @@
     $('result-title').textContent = rating > 0 ? `${p.name}: открыто!` : `${p.name}: почти!`;
     $('result-stars').innerHTML = '⭐'.repeat(rating) + '<span class="dim">' + '⭐'.repeat(3 - rating) + '</span>' +
       `<div style="font-size:20px;color:var(--muted)">${M.stars} из ${MAX_STARS} звёзд${M.bonus ? ` + ${M.bonus} бонус` : ''}</div>`;
+    $('result-streak').innerHTML = sk.streak >= 2 ? `🔥 ${sk.streak} ${T.plural(sk.streak, { one: 'день', few: 'дня', many: 'дней' })} подряд${streakAward ? ` · ${streakAward.e} награда за серию!` : ''}` : '';
     const se = $('sticker-earned'); se.hidden = sticker === null;
     const ru = $('rank-up'); ru.hidden = !M.rankUp;
-    if (M.rankUp) ru.innerHTML = `<div class="sticker-label">Новое звание!</div><div class="rank-big">${M.rankUp.emoji}</div><div class="rank-name">${M.rankUp.name}</div>`;
+    if (M.rankUp) ru.innerHTML = `<div class="sticker-label">Новое звание!</div><div class="rank-big">${M.rankUp.emoji}</div><div class="rank-name">${M.rankUp.name}</div><div class="note">${M.rankUp.title}</div>`;
+    const mb = $('mastered-box'); mb.hidden = !M.mastered.length;
+    if (M.mastered.length) mb.innerHTML = `<div class="sticker-label">Освоено</div><div class="mastered-list">${[...new Set(M.mastered)].map(k => `🏅 ${T.SKILLS[k].name}`).join('<br>')}</div>`;
     if (sticker !== null) $('sticker-big').textContent = STICKERS[sticker];
     $('btn-next').textContent = rating > 0 ? 'Дальше 🚀' : 'Ещё раз 🚀';
     show('result');
     if (rating > 0) { SFX.fanfare(); confetti(); } else SFX.good();
+    const name = NAME() ? NAME() + ', ' : '';
     setTimeout(() => speak(rating > 0
-      ? `Планета ${p.name} открыта! ${rating === 3 ? 'Три звезды, идеально!' : ''} ${sticker !== null ? 'Ты получил новую наклейку!' : ''} ${M.rankUp ? 'И новое звание: ' + M.rankUp.name + '!' : ''}`
-      : 'Почти получилось. Зум верит в тебя, давай ещё раз!', 'now'), 400);
+      ? `${name}планета ${p.name} открыта! ${rating === 3 ? 'Три звезды, идеально!' : ''} ${sticker !== null ? 'Новая наклейка!' : ''} ${M.rankUp ? 'И новое звание: ' + M.rankUp.name + '!' : ''} ${streakAward ? `Ты летаешь уже ${streakAward.days} ${T.plural(streakAward.days, { one: 'день', few: 'дня', many: 'дней' })} подряд!` : ''}`
+      : `${name}почти получилось. Зум верит в тебя. Давай ещё раз!`, 'now'), 400);
     if (sticker !== null) setTimeout(SFX.sticker, 900);
   }
 
@@ -708,6 +1035,13 @@
       el.textContent = has ? e : '❔';
       g.appendChild(el);
     });
+    STREAK_MILESTONES.forEach((m, i) => {
+      const el = document.createElement('div');
+      const has = S.streakAwards.includes(m);
+      el.className = 'st streak-st' + (has ? '' : ' empty');
+      el.innerHTML = (has ? STREAK_STICKERS[i] : '❔') + `<small>${m} дн.</small>`;
+      g.appendChild(el);
+    });
   }
 
   // ---------- родительский раздел ----------
@@ -720,61 +1054,76 @@
     $('gate').hidden = false;
     setTimeout(() => $('gate-input').focus(), 50);
   }
+  function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
   function renderParent() {
     const body = $('parent-body');
-    const skillsHTML = Object.keys(T.SKILLS).map(k => {
-      const st = S.stats[k] || { asked: 0, first: 0, second: 0, fail: 0 };
-      const acc = st.asked ? Math.round((st.first + st.second * 0.5) / st.asked * 100) : 0;
-      return `<div class="stat-row"><span>${T.SKILLS[k].name}</span><span>${st.asked}</span>` +
-        `<span class="bar"><i style="width:${acc}%"></i></span><span>${acc}%</span></div>`;
+    const cur = S.cur, stage = C.STAGES[cur.stage - 1], r = C.rank(cur), prog = C.stageProgress(cur);
+    const sk = C.streak(cur);
+    const coreHTML = stage.core.map(x => {
+      const n = C.attempts(cur, x.skill), m = Math.round(C.mastery(cur, x.skill) * 100), ok = C.isMastered(cur, x.skill);
+      return `<div class="stat-row"><span>${ok ? '✅ ' : ''}${T.SKILLS[x.skill].name}</span><span>${n}</span><span class="bar"><i style="width:${m}%"></i></span><span>${n ? m + '%' : '—'}</span></div>`;
     }).join('');
-    const levelsHTML = Object.keys(T.SKILLS).map(k => {
-      const pct = Math.round(Difficulty.effective(S.dl, k) * 100);
-      return `<div class="toggle"><label><input type="checkbox" data-skill="${k}" ${S.settings.skills[k] ? 'checked' : ''}> ${T.SKILLS[k].name}</label>` +
-        `<div class="lvl"><span class="bar diff"><i style="width:${pct}%"></i></span><span class="pct" data-pct="${k}">${pct}%</span>` +
-        `<div class="lvl-btns" data-skill="${k}"><button data-d="0.15">Л</button><button data-d="0.5">С</button><button data-d="0.85">Т</button></div></div></div>`;
-    }).join('');
-    const hist = S.history.slice(0, 10).map(h => {
+    const extraNames = stage.extra.map(x => T.SKILLS[x.skill].name).join(', ');
+    const struggle = C.struggling(cur);
+    const topics = {};
+    for (const k of Object.keys(T.SKILLS)) (topics[T.SKILLS[k].topic] = topics[T.SKILLS[k].topic] || []).push(k);
+    const statsHTML = Object.keys(topics).map(tp => `<div class="topic-head">${T.TOPICS[tp]}</div>` + topics[tp].map(k => {
+      const st = S.stats[k] || { asked: 0, first: 0, second: 0, fail: 0, sec: 0 };
+      const acc = st.asked ? Math.round(st.first / st.asked * 100) : 0;
+      const avg = st.asked ? (st.sec / st.asked).toFixed(0) : '—';
+      return `<div class="stat-row five"><span>${T.SKILLS[k].name}</span><span>${st.asked}</span><span class="bar"><i style="width:${acc}%"></i></span><span>${st.asked ? acc + '%' : '—'}</span><span>${avg}с</span></div>`;
+    }).join('')).join('');
+    const togglesHTML = Object.keys(topics).map(tp => `<div class="topic-head">${T.TOPICS[tp]}</div>` + topics[tp].map(k =>
+      `<div class="toggle"><label><input type="checkbox" data-skill="${k}" ${S.settings.skills[k] ? 'checked' : ''}> ${T.SKILLS[k].name}</label><span class="note">с ${C.firstStage(k)}-й ступени</span></div>`).join('')).join('');
+    const hist = S.history.slice(0, 12).map(h => {
       const d = new Date(h.d);
       const weak = Object.entries(h.skills).filter(([, v]) => v[0] < v[1] / 2).map(([k]) => T.SKILLS[k].name);
-      return `<div>${d.toLocaleDateString('ru-RU')} ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} — ${planetInfo(h.planet).name}: ${h.stars}/${MAX_STARS}${weak.length ? ' · слабо: ' + weak.join(', ') : ''}</div>`;
+      return `<div>${d.toLocaleDateString('ru-RU')} ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} — ${planetInfo(h.planet).name}: ${h.stars}/${MAX_STARS}${h.stage ? ` · ступень ${h.stage}` : ''}${weak.length ? ' · слабо: ' + weak.join(', ') : ''}</div>`;
     }).join('') || '<div>Пока нет сыгранных миссий.</div>';
+    const log = cur.log.slice(-16).reverse().map(l => `${l.o === 2 ? '✅' : l.o === 1 ? '🤝' : '❌'} ${T.SKILLS[l.skill] ? T.SKILLS[l.skill].name : l.skill}${l.s != null ? ` · ${l.s}с` : ''}`).join('<br>') || 'пока пусто';
 
     body.innerHTML = `
-      <div class="card"><h3>Статистика по навыкам</h3>
-        <div class="stat-row head"><span>Навык</span><span>Заданий</span><span>Точность</span><span></span></div>${skillsHTML}
-        <div class="note">Точность: ответ с первой попытки = 100%, со второй = 50%.</div>
+      <div class="card"><h3>Ребёнок</h3>
+        <div class="toggle"><label>Имя (Зум будет обращаться по имени)</label></div>
+        <input class="gate-input name-input" id="set-name" type="text" maxlength="20" placeholder="Имя" value="${esc(S.settings.name || '')}">
+        <div class="note">🔥 Серия: ${sk.streak} ${T.plural(sk.streak, { one: 'день', few: 'дня', many: 'дней' })} подряд${sk.playedToday ? ', сегодня уже летал' : ', сегодня ещё не летал'}. Награды за серию: ${S.streakAwards.length ? S.streakAwards.join(', ') + ' дн.' : 'пока нет'}.</div>
       </div>
+      <div class="card"><h3>Ступень ${stage.level} из ${C.STAGES.length}: ${r.emoji} ${stage.name} — ${stage.title}</h3>
+        <div class="note">${stage.about}</div>
+        <div class="stat-row head"><span>Ядро ступени</span><span>Ответов</span><span>С первой</span><span></span></div>${coreHTML}
+        <div class="note">Освоено ${prog.done} из ${prog.total}. Навык считается освоенным после ≥3 ответов с первой попытки в ≥70 % случаев; переход — когда освоено всё ядро (или 10 верных подряд). Ответы после подсказки в мастерство не идут.</div>
+        <div class="note">Дополнительно на ступени: ${extraNames}.</div>
+        ${struggle ? '<div class="note warn">⚠️ Сейчас трудно: меньше 40 % ответов ядра с первой. Миссии стали мягче (больше разминки). Можно поиграть вместе или вернуться на ступень ниже.</div>' : ''}
+        <div class="lvl-btns stage-btns"><button id="stage-down" ${stage.level <= 1 ? 'disabled' : ''}>← ступень ниже</button><button id="stage-up" ${stage.level >= C.STAGES.length ? 'disabled' : ''}>ступень выше →</button></div>
+      </div>
+      <div class="card"><h3>Последние ответы</h3><div class="history">${log}</div><div class="note">✅ с первой · 🤝 после режима «вместе» · ❌ не решил</div></div>
       <div class="card"><h3>Последние миссии</h3><div class="history">${hist}</div></div>
-      <div class="card"><h3>Общий уровень</h3>
-        <div class="note">Звание: ${Difficulty.rank(S.dl).emoji} ${Difficulty.rank(S.dl).name}. Общая сложность ${Math.round(S.dl.global * 100)}%. Она растёт после каждого верного ответа и падает после ошибок; темы ниже — отклонения от неё.</div>
-        <div class="lvl-btns" id="global-btns"><button data-d="0.15">Легко</button><button data-d="0.4">Средне</button><button data-d="0.65">Трудно</button><button data-d="0.9">Очень</button></div>
+      <div class="card"><h3>Статистика по навыкам (за всё время)</h3>
+        <div class="stat-row five head"><span>Навык</span><span>Заданий</span><span>С первой</span><span></span><span>Время</span></div>${statsHTML}
+        <div class="note">«С первой» — доля ответов с первой попытки. Время — среднее до ответа; для примеров до 10 цель к концу года — около 5 секунд, это и есть счёт в уме.</div>
       </div>
-      <div class="card"><h3>Темы и сложность</h3>
-        <div class="note">Галочка включает тему. Полоска — текущая сложность 0–100%, она сама растёт после верных ответов и падает после ошибок. Кнопки: Л — легко, С — средне, Т — трудно.</div>${levelsHTML}
+      <div class="card"><h3>Темы</h3>
+        <div class="note">Галочка включает тему. Выключенная тема не попадает в миссии, даже если она в ядре ступени.</div>${togglesHTML}
       </div>
       <div class="card"><h3>Настройки</h3>
-        <div class="toggle"><label><input type="checkbox" id="set-adaptive" ${S.settings.adaptive ? 'checked' : ''}> Автоподбор сложности</label></div>
         <div class="toggle"><label><input type="checkbox" id="set-voice" ${S.settings.voice ? 'checked' : ''}> Озвучка заданий</label></div>
         <div class="toggle"><label><input type="checkbox" id="set-sound" ${S.settings.sound ? 'checked' : ''}> Звуки</label></div>
+        <div class="toggle"><label><input type="checkbox" id="set-repeat" ${S.settings.autoRepeat ? 'checked' : ''}> Повторять вопрос, если ребёнок молчит 16 секунд</label></div>
         <div class="note">Голос: ${Speech.voiceName() || (Speech.available() ? 'русский голос не найден, установи его в настройках Android (Синтез речи)' : 'браузер не поддерживает')}</div>
         <button class="big-btn small-btn" id="btn-voice-test">🔊 Проверить голос</button>
         <pre class="diag" id="voice-diag"></pre>
       </div>
       <div class="card"><h3>Опасная зона</h3>
+        <button class="big-btn small-btn" id="btn-new-galaxy">🌌 Новая галактика (сбросить только карту планет)</button>
         <button class="big-btn small-btn danger" id="btn-reset">Сбросить весь прогресс</button>
       </div>`;
 
+    $('set-name').addEventListener('change', e => { S.settings.name = e.target.value.trim(); save(); });
     body.querySelectorAll('input[data-skill]').forEach(cb => cb.addEventListener('change', () => {
       S.settings.skills[cb.dataset.skill] = cb.checked; save();
     }));
-    body.querySelectorAll('.lvl-btns').forEach(g => g.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
-      const k = g.dataset.skill; Difficulty.set(S.dl, k, Number(b.dataset.d)); save();
-      const pct = Math.round(Difficulty.effective(S.dl, k) * 100);
-      body.querySelector(`.pct[data-pct="${k}"]`).textContent = pct + '%';
-      g.parentElement.querySelector('.bar.diff i').style.width = pct + '%';
-    })));
-    $('global-btns').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { Difficulty.setGlobal(S.dl, Number(b.dataset.d)); save(); renderParent(); }));
+    $('stage-down').addEventListener('click', () => { if (confirm(`Перевести на ступень ${stage.level - 1}? Прогресс освоения на текущей ступени обнулится.`)) { C.setStage(S.cur, stage.level - 1); save(); renderParent(); } });
+    $('stage-up').addEventListener('click', () => { if (confirm(`Перевести на ступень ${stage.level + 1}? Задания станут заметно сложнее.`)) { C.setStage(S.cur, stage.level + 1); save(); renderParent(); } });
     const showDiag = () => {
       const st = Speech.status();
       $('voice-diag').textContent = Object.entries(st).map(([k, v]) => `${k}: ${v}`).join('\n');
@@ -782,14 +1131,17 @@
     showDiag();
     $('btn-voice-test').addEventListener('click', () => {
       Speech.setEnabled(true);
-      Speech.say('Привет! Я Зум. Если ты меня слышишь, озвучка работает.', { interrupt: true });
+      Speech.say(`Привет${NAME() ? ', ' + NAME() : ''}! Я Зум. Если ты меня слышишь, озвучка работает.`, { interrupt: true });
       setTimeout(showDiag, 300); setTimeout(showDiag, 1500); setTimeout(showDiag, 4000);
     });
-    $('set-adaptive').addEventListener('change', e => { S.settings.adaptive = e.target.checked; save(); });
     $('set-voice').addEventListener('change', e => { S.settings.voice = e.target.checked; Speech.setEnabled(S.settings.voice); save(); });
     $('set-sound').addEventListener('change', e => { S.settings.sound = e.target.checked; save(); });
+    $('set-repeat').addEventListener('change', e => { S.settings.autoRepeat = e.target.checked; save(); });
+    $('btn-new-galaxy').addEventListener('click', () => {
+      if (confirm('Начать новую галактику? Планеты закроются, звёзды, наклейки и ступень останутся.')) { S.planets = []; S.galaxy = (S.galaxy || 1) + 1; S.notice = 'galaxy'; save(); renderParent(); }
+    });
     $('btn-reset').addEventListener('click', () => {
-      if (confirm('Точно сбросить звёзды, планеты, наклейки и статистику?')) { S = defaultState(); Speech.setEnabled(S.settings.voice); save(); renderParent(); }
+      if (confirm('Точно сбросить звёзды, планеты, наклейки, ступень и статистику?')) { const name = S.settings.name; S = defaultState(); S.settings.name = name; Speech.setEnabled(S.settings.voice); save(); renderParent(); }
     });
   }
 
@@ -797,8 +1149,8 @@
   $('btn-start').addEventListener('click', () => { audio(); SFX.tap(); startMission(currentPlanet()); });
   $('btn-go').addEventListener('click', () => { Speech.stop(); SFX.launch(); beginTasks(); });
   $('btn-intro-back').addEventListener('click', () => { Speech.stop(); M = null; renderHome(); show('home'); });
-  $('btn-quit').addEventListener('click', () => { Speech.stop(); M = null; renderHome(); show('home'); });
-  $('btn-speak').addEventListener('click', () => { if (M) speak(M.tasks[M.idx].say, 'now'); });
+  $('btn-quit').addEventListener('click', () => { Speech.stop(); clearTimers(); M = null; renderHome(); show('home'); });
+  $('btn-speak').addEventListener('click', () => { if (M) { const t = M.tasks[M.idx]; speak(M.guided ? ($('guide-text').textContent || t.say) : t.lesson && !$('lesson').hidden ? T.LESSONS[t.skill] : t.say, 'now'); } });
   $('btn-next').addEventListener('click', () => { SFX.tap(); startMission(currentPlanet()); });
   $('btn-home').addEventListener('click', () => { renderHome(); show('home'); });
   $('btn-album').addEventListener('click', () => { SFX.tap(); renderAlbum(); show('album'); });
@@ -835,5 +1187,5 @@
   }, 7000);
   renderHome();
   show('home');
-  window.__cosmo = { get state() { return S; }, get mission() { return M; }, startMission, beginTasks, T };
+  window.__cosmo = { get state() { return S; }, get mission() { return M; }, startMission, beginTasks, renderTask, T, C, save, renderParent, show, renderHome };
 })();
