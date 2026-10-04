@@ -28,6 +28,12 @@
     </header>
     <h1 class="title">Космо-<br>математика</h1>
     <div class="rank" id="rank"></div>
+    <div class="streak" id="streak"></div>
+    <div class="mascot home-mascot" id="home-mascot" hidden>
+      <span class="face">👽</span>
+      <div class="bubble"><div class="prompt small" id="home-notice"></div></div>
+    </div>
+    <div class="galaxy-label" id="galaxy-label"></div>
     <div class="map" id="map"></div>
     <button class="big-btn primary" id="btn-start">🚀 Полетели!</button>
   </section>
@@ -64,8 +70,10 @@
       </div>
       <div class="combo" id="combo" hidden></div>
       <div class="stage" id="stage"></div>
+      <div class="guide" id="guide" hidden><span class="guide-text" id="guide-text"></span><span class="guide-count" id="guide-count"></span></div>
       <div class="hint" id="hint" hidden></div>
     </div>
+    <div class="lesson-bar" id="lesson" hidden><button class="big-btn primary" id="btn-lesson-ok">Понятно! 👍</button></div>
     <div class="options" id="options"></div>
     <div class="feedback" id="feedback"></div>
   </section>
@@ -76,7 +84,9 @@
       <div class="result-planet" id="result-planet">🪐</div>
       <h2 id="result-title">Планета открыта!</h2>
       <div class="result-stars" id="result-stars"></div>
+      <div class="result-streak" id="result-streak"></div>
       <div class="sticker-earned rank-up" id="rank-up" hidden></div>
+      <div class="sticker-earned" id="mastered-box" hidden></div>
       <div class="sticker-earned" id="sticker-earned" hidden>
         <div class="sticker-label">Новая наклейка!</div>
         <div class="sticker-big" id="sticker-big">👽</div>
@@ -122,7 +132,7 @@
 
   <script src="js/tasks.js"></script>
   <script src="js/speech.js"></script>
-  <script src="js/difficulty.js"></script>
+  <script src="js/curriculum.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
