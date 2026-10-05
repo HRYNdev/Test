@@ -210,7 +210,8 @@
     return {
       skill: 'flash', kind: 'choice', scene: 'flash',
       prompt: 'Сколько точек ты увидел?',
-      say: pattern === 'dice2' ? 'Смотри внимательно! Два кубика. Сколько точек на двух кубиках вместе?' : 'Смотри внимательно! Точки сейчас спрячутся. Сколько точек?',
+      say: pattern === 'dice2' ? 'Смотри внимательно! Сейчас покажу два кубика и быстро спрячу.' : 'Смотри внимательно! Сейчас покажу точки и быстро спрячу.',
+      afterHideSay: pattern === 'dice2' ? 'Сколько точек на двух кубиках вместе? Нажми число.' : 'Сколько было точек? Нажми число.',
       sayShort: 'Сколько было точек?',
       display: { type: 'flash', pattern, n, dice2, showMs },
       options: numberOptions(n, optCount(d), Math.max(1, n - 3), pattern === 'dice' ? 6 : n + 3),
@@ -329,7 +330,7 @@
     }
     return {
       skill: 'story', kind: 'choice', scene: 'story',
-      prompt: q, say: text, sayShort: q,
+      prompt: text, say: text, sayShort: q,
       display: { type: 'story', groups, showObjects: show },
       options: numberOptions(answer, optCount(d), 0, Math.min(20, max + 5)),
       answer,
@@ -486,7 +487,7 @@
         display: { type: 'none' },
         options: opts, answer: target.id,
         hint: { type: 'shape-names', say: '' },
-        guide: { mode: 'show', say: `Я подписал фигуры. Ищи слово «${target.name}». ${target.id === 'circle' ? 'Круг гладкий, без углов.' : target.id === 'triangle' ? 'У треугольника три угла.' : target.id === 'square' ? 'У квадрата четыре угла и все стороны одинаковые.' : ''}` },
+        guide: { mode: 'show', say: `Я подписал фигуры. Ищи слово «${target.name}». ${target.id === 'circle' ? 'Круг гладкий, без углов.' : target.id === 'triangle' ? 'У треугольника три угла.' : target.id === 'square' ? 'У квадрата четыре угла и все стороны одинаковые.' : ''}`.trim() },
         explain: `Это ${target.name}`,
       };
     }
@@ -616,9 +617,18 @@
   function genMoney(d) {
     const target = d < 0.3 ? rint(2, 5) : d < 0.7 ? rint(4, 10) : rint(8, 20);
     const denoms = d < 0.3 ? [1, 2] : d < 0.7 ? [1, 2, 5] : [1, 2, 5, 10];
-    const coins = [];
-    let rest = target, guard = 0;
-    while (rest > 0 && guard++ < 50) { const dd = pick(denoms.filter(x => x <= rest)); coins.push(dd); rest -= dd; }
+    const MAX_COINS = 6;
+    let coins = [];
+    for (let attempt = 0; attempt < 40; attempt++) {
+      coins = [];
+      let rest = target, guard = 0;
+      while (rest > 0 && guard++ < 50) { const dd = pick(denoms.filter(x => x <= rest)); coins.push(dd); rest -= dd; }
+      if (coins.length <= MAX_COINS) break;
+    }
+    if (coins.length > MAX_COINS) { // запасной вариант: размен крупными
+      coins = []; let rest = target;
+      for (const dd of denoms.slice().sort((a, b) => b - a)) while (rest >= dd) { coins.push(dd); rest -= dd; }
+    }
     const answer = coins.reduce((s, c) => s + c, 0);
     const item = pick(SHOP);
     const sorted = coins.slice().sort((a, b) => b - a);
@@ -757,7 +767,7 @@
     const gapIdx = cells.indexOf(answer);
     return {
       skill: 'between', kind: 'choice', scene: 'secret',
-      prompt: `Между ${lo} и ${hi}`,
+      prompt: `Какое число между ${lo} и ${hi}?`,
       say: `Я загадал число. Оно стоит на дорожке между ${WI(lo)} и ${WI(hi)}. Какое число спряталось между ними?`,
       sayShort: `Какое число между ${WI(lo)} и ${WI(hi)}?`,
       display: { type: 'sequence', seq: cells, idx: gapIdx, hideLine: d >= 0.7, focus: cells.indexOf(lo), focus2: cells.indexOf(hi) },
@@ -803,7 +813,7 @@
       options: numberOptions(n, 4, Math.max(0, n - 4), Math.min(20, n + 4)),
       answer: n,
       hint: { type: 'listen-word', say: '' },
-      guide: { mode: 'show', say: `Повторяю медленно: ${NUM_WORDS[n]}. Я написал это слово. ${n > 10 ? `${NUM_WORDS[n]} — это десять и ${NUM_WORDS[n - 10]}.` : ''}` },
+      guide: { mode: 'show', say: `Повторяю медленно: ${NUM_WORDS[n]}. Я написал это слово. ${n > 10 ? `${NUM_WORDS[n]} — это десять и ${NUM_WORDS[n - 10]}.` : ''}`.trim() },
       explain: `${n} — ${NUM_WORDS[n]}`,
     };
   }

@@ -184,9 +184,11 @@
 
   // ---------- план миссии ----------
   // enabled — массив включённых родителем навыков. Возвращает [{ skill, d, slot, lesson }].
-  function planMission(st, enabled, n) {
+  // now — «сейчас» для весов давности (по умолчанию Date.now(); в тестах передаётся симулированное время).
+  function planMission(st, enabled, n, now) {
     st = normalize(st);
     n = n || 8;
+    now = now == null ? Date.now() : now;
     const cur = stageOf(st);
     const en = new Set(enabled && enabled.length ? enabled : Object.keys(allSkills()));
     const ok = k => en.has(k);
@@ -212,8 +214,7 @@
     const pickFresh = (pool) => {
       const c = pool.filter(canUse);
       if (!c.length) return null;
-      const now = Date.now();
-      return pickWeighted(c, k => 1 + Math.min(5, (now - recency(k)) / 864e5));
+      return pickWeighted(c, k => 1 + Math.min(5, Math.max(0, now - recency(k)) / 864e5));
     };
     // ядро: сначала те, что ещё не встречались (нужен урок), потом слабые
     const pickCore = () => {

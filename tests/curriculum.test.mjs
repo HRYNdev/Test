@@ -23,7 +23,7 @@ function simulate(ability, missions, seed) {
   const st = C.create(); let now = Date.parse('2026-10-01T18:00:00');
   const stages = [];
   for (let m = 0; m < missions; m++) {
-    const plan = C.planMission(st, ALL, 8);
+    const plan = C.planMission(st, ALL, 8, now);
     assert.equal(plan.length, 8);
     for (const p of plan) {
       const t = T.generate(p.skill, p.d);
@@ -162,8 +162,8 @@ test('уверенный ребёнок (95 %) проходит ступень �
   }
 });
 
-test('ребёнок, которому трудно на ступени (50 %), остаётся на ней, а миссия становится мягче', () => {
-  const { st, stages } = simulate((k, d, s) => (s === 1 ? 0.95 : 0.45), 12, 2);
+test('ребёнок, которому трудно на ступени (35 % с первой), остаётся на ней, а миссия становится мягче', () => {
+  const { st, stages } = simulate((k, d, s) => (s === 1 ? 0.95 : 0.35), 12, 2);
   assert.ok(stages.includes(2) && !stages.includes(3), stages.join(' '));
   assert.equal(C.struggling(st), true);
   C.setRandom(mulberry32(9));

@@ -164,11 +164,20 @@ test('речь: нет пустых формулировок, нет «посл�
   }
 });
 
-test('money: монеты суммируются в ответ', () => {
+test('money: монеты суммируются в ответ, монет не больше шести', () => {
   T.setRandom(mulberry32(9));
-  for (let i = 0; i < 300; i++) {
-    const t = T.generate('money', 1);
+  for (let i = 0; i < 600; i++) {
+    const t = T.generate('money', i / 600);
     assert.equal(t.display.coins.reduce((s, c) => s + c, 0), t.answer);
+    assert.ok(t.display.coins.length <= 6, `монет ${t.display.coins.length}`);
+  }
+});
+
+test('story: в пузыре полный текст задачи (без озвучки задачу иначе не понять)', () => {
+  T.setRandom(mulberry32(11));
+  for (let i = 0; i < 100; i++) {
+    const t = T.generate('story', i / 100);
+    assert.equal(t.prompt, t.say);
   }
 });
 
