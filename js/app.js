@@ -281,12 +281,14 @@
     clearTimers();
     M.attempts = 0; M.picked = []; M.busy = false; M.guided = false; M.touched = false; M.t0 = Date.now();
     renderProgress();
+    $('game').scrollTop = 0;
     $('prompt').textContent = t.prompt;
     $('scene').textContent = SCENES[t.scene] || '';
     $('feedback').textContent = ''; $('feedback').className = 'feedback';
     const hint = $('hint'); hint.hidden = true; hint.textContent = '';
     const guide = $('guide'); guide.hidden = true; $('guide-text').textContent = ''; $('guide-count').textContent = '';
-    const stage = $('stage'); stage.innerHTML = ''; stage.style.display = '';
+    const stage = $('stage'); stage.innerHTML = ''; stage.style.display = ''; stage.hidden = false;
+    document.querySelector('.task').classList.remove('lesson-on');
     const opts = $('options'); opts.innerHTML = ''; opts.className = 'options'; opts.style.gridTemplateColumns = ''; opts.hidden = false;
     $('lesson').hidden = true;
     renderStage(t, stage);
@@ -305,12 +307,15 @@
     $('scene').textContent = '🎓 Зум объясняет';
     $('prompt').textContent = T.LESSONS[t.skill];
     $('options').hidden = true;
-    $('lesson').hidden = false;
+    $('stage').hidden = true;           // сцена появится после «Понятно»: иначе на маленьком экране она налезает на кнопку,
+    $('lesson').hidden = false;         // а вспышка и память показались бы раньше времени
+    document.querySelector('.task').classList.add('lesson-on');
     face('🤓');
     speak(`${NAME() ? NAME() + ', ' : ''}новое задание! ${T.LESSONS[t.skill]}`, 'now');
     const ok = $('btn-lesson-ok');
     ok.onclick = () => {
-      SFX.tap(); $('lesson').hidden = true; $('options').hidden = false;
+      SFX.tap(); $('lesson').hidden = true; $('options').hidden = false; $('stage').hidden = false;
+      document.querySelector('.task').classList.remove('lesson-on');
       C.markIntro(S.cur, t.skill); save();
       $('scene').textContent = SCENES[t.scene] || ''; $('prompt').textContent = t.prompt;
       face('👽');
@@ -320,27 +325,38 @@
   }
 
   // Показать задание: озвучить, запустить «показ-и-спрятать» для памяти/вспышки, таймер автоповтора
+  // Сколько примерно длится фраза (речь ~14 символов в секунду при rate 0.9); 0, если озвучки нет
+  const speechMs = text => (Speech.isEnabled() && Speech.available() ? 600 + String(text || '').length * 70 : 0);
   function presentTask(t) {
     const d = t.display;
+    const alive = () => M && M.tasks[M.idx] === t;
     if (d.type === 'flash') {
+      // показ и речь не накладываются: «смотри внимательно» → точки на showMs → спрятали → вопрос
       $('options').hidden = true;
+      M.busy = true;
       speak(t.say, 'now');
-      later(() => {
-        const f = $('stage').querySelector('.flash'); if (f) f.classList.add('covered');
-        SFX.hide(); $('options').hidden = false; armRepeat(t);
-      }, d.showMs);
+      afterSpeech(() => {
+        if (!alive()) return;
+        const f = $('stage').querySelector('.flash'); if (f) f.classList.remove('covered');
+        SFX.tap();
+        later(() => {
+          if (f) f.classList.add('covered');
+          SFX.hide(); M.busy = false; $('options').hidden = false; speak(t.afterHideSay, 'now'); armRepeat(t);
+        }, d.showMs);
+      }, 3500);
       return;
     }
     if (d.type === 'memory') {
+      // предметы остаются на экране, пока Зум не перечислил их все
       $('options').hidden = true;
       speak(t.say, 'now');
-      later(() => hideMemoryItem(t, () => { speak(t.afterHideSay, 'now'); $('options').hidden = false; armRepeat(t); }), d.showMs);
+      later(() => hideMemoryItem(t, () => { speak(t.afterHideSay, 'now'); $('options').hidden = false; armRepeat(t); }), Math.max(d.showMs, speechMs(t.say) + 800));
       return;
     }
     if (d.type === 'simon') {
       speak(t.say, 'now');
       M.busy = true;
-      later(() => playSimon(t, d.stepMs, () => { M.busy = false; M.picked = []; speak(t.afterShowSay, 'now'); armRepeat(t); }), 900);
+      afterSpeech(() => { if (alive()) playSimon(t, d.stepMs, () => { M.busy = false; M.picked = []; speak(t.afterShowSay, 'now'); armRepeat(t); }); }, 3500);
       return;
     }
     speak(t.say, 'now');
@@ -376,7 +392,7 @@
   function objsHTML(g, extra) {
     const n = g.n, crossed = extra && extra.crossed ? g.crossed || 0 : 0, numbered = extra && extra.numbered;
     const extraN = extra && extra.extra ? g.extra || 0 : 0;
-    let h = `<div class="objs${n + extraN > 5 ? ' rows5' : ''}">`;
+    let h = `<div class="objs${n + extraN > 5 ? ' rows5' : ''}${n + extraN > 10 ? ' many' : ''}">`;
     for (let i = 0; i < n; i++) {
       const cr = i >= n - crossed;
       h += `<span class="obj${cr ? ' crossed' : ''}">${g.emoji}${numbered ? `<span class="num">${i + 1}</span>` : ''}</span>`;
@@ -385,7 +401,8 @@
     return h + '</div>';
   }
   function groupsHTML(groups, extra) {
-    return '<div class="groups">' + groups.map(g =>
+    const total = groups.reduce((s, g) => s + g.n + (extra && extra.extra ? g.extra || 0 : 0), 0);
+    return `<div class="groups${total > 10 ? ' dense' : ''}">` + groups.map(g =>
       (g.label ? `<div class="glabel"><b>${g.label}</b>${objsHTML(g, extra)}</div>` : objsHTML(g, extra))
     ).join('<span class="plus">+</span>') + '</div>';
   }
@@ -398,7 +415,7 @@
     return `<div class="tenframe">${Array.from({ length: 10 }, (_, i) => i < n ? '<i class="dot"></i>' : '<i></i>').join('')}</div>`;
   }
   function seqHTML(d) {
-    return '<div class="radar"><div class="seq' + (d.hideLine ? ' hidden-line' : '') + (d.seq.length >= 6 ? ' compact' : '') + '">' + d.seq.map((v, i) =>
+    return '<div class="radar"><div class="seq' + (d.hideLine ? ' hidden-line' : '') + (d.seq.length >= 6 ? ' compact' : d.seq.length === 5 ? ' mid' : '') + '">' + d.seq.map((v, i) =>
       `<div class="cell${i === d.idx ? ' gap' : ''}${i === d.focus || i === d.focus2 ? ' focus' : ''}" data-i="${i}" data-say="${W(v)}">${i === d.idx ? '?' : v}</div>`).join('') + '</div></div>';
   }
   function renderStage(t, stage) {
@@ -451,12 +468,12 @@
       case 'share': {
         let objs = '';
         for (let i = 0; i < d.n; i++) objs += `<span class="obj share-obj" data-p="${i % 2}">${d.emoji}</span>`;
-        stage.innerHTML = `<div class="share"><div class="objs${d.n > 5 ? ' rows5' : ''}">${objs}</div>` +
+        stage.innerHTML = `<div class="share"><div class="objs${d.n > 5 ? ' rows5' : ''}${d.n > 10 ? ' many' : ''}">${objs}</div>` +
           `<div class="share-rockets"><div class="srocket r0">🚀<b id="share-a">0</b></div><div class="srocket r1">🚀<b id="share-b">0</b></div></div></div>`;
         break; }
       case 'diff': {
         const [g1, g2] = d.groups;
-        const row = (g, extraFrom) => `<div class="diff-row"><b>${g.label}</b><div class="objs">${Array.from({ length: g.n }, (_, i) =>
+        const row = (g, extraFrom) => `<div class="diff-row"><b>${g.label}</b><div class="objs${g1.n > 5 ? ' rows5' : ''}">${Array.from({ length: g.n }, (_, i) =>
           `<span class="obj${extraFrom != null && i >= extraFrom ? ' diff-extra' : ''}">${g.emoji}</span>`).join('')}</div></div>`;
         stage.innerHTML = `<div class="diff">${row(g1, g2.n)}${row(g2)}</div>`;
         break; }
@@ -467,13 +484,13 @@
           `<div class="tens-text">${d.mode === 'sum' ? `10 + ${d.x}` : `${10 + d.x} = 10 + ?`}</div>`;
         break; }
       case 'listen':
-        stage.innerHTML = `<button class="ear" id="btn-ear" aria-label="Повторить число">🔊</button><div class="listen-word" id="listen-word" ${Speech.isEnabled() && Speech.available() ? 'hidden' : ''}>${d.word}</div>`;
+        stage.innerHTML = `<button class="ear" id="btn-ear" aria-label="Повторить число">🔊</button><div class="listen-word" id="listen-word" ${Speech.isEnabled() && Speech.available() && Speech.status().spoken > 0 ? 'hidden' : ''}>${d.word}</div>`;
         break;
       case 'corners':
         stage.innerHTML = `<div class="corner-shape">${shapeSVG(d.shape, d.color, true)}</div>`;
         break;
       case 'flash':
-        stage.innerHTML = `<div class="flash ${d.pattern}">${d.pattern === 'dice' ? diceHTML(d.n) : d.pattern === 'ten' ? tenFrameHTML(d.n) : diceHTML(d.dice2[0]) + diceHTML(d.dice2[1])}<div class="cover">🙈</div></div>`;
+        stage.innerHTML = `<div class="flash ${d.pattern} covered">${d.pattern === 'dice' ? diceHTML(d.n) : d.pattern === 'ten' ? tenFrameHTML(d.n) : diceHTML(d.dice2[0]) + diceHTML(d.dice2[1])}<div class="cover">🙈</div></div>`;
         break;
       case 'memory':
         stage.innerHTML = `<div class="memo"><div class="objs">${d.items.map((e, i) => `<span class="obj" data-i="${i}">${e}</span>`).join('')}</div></div>`;
@@ -539,7 +556,7 @@
   function renderOptions(t, box) {
     const d = t.display;
     if (d.type === 'pair-objects') {
-      box.classList.add('cols2');
+      box.classList.add('cols2', 'pair');
       d.groups.forEach((g, i) => {
         const b = document.createElement('button');
         b.className = 'opt pair-btn'; b.dataset.value = String(i);
@@ -550,6 +567,8 @@
       return;
     }
     if (t.options.length === 4) box.classList.add('cols2');
+    const plainNums = t.options.every(o => !o.shape && !o.emoji && !o.bar && !o.row && o.pad == null && !o.word && String(o.label).length <= 2);
+    if (t.options.length === 4 && plainNums) box.classList.add('nums');
     if (t.options[0].row) { box.className = 'options row'; box.style.gridTemplateColumns = `repeat(${t.options.length}, minmax(0, 1fr))`; }
     if (t.options[0].bar) box.className = 'options bars';
     if (t.options[0].pad != null) box.className = 'options cols2 pads';
@@ -653,25 +672,29 @@
   // ===== режим «вместе»: после первой ошибки варианты прячутся, ребёнок делает руками =====
   function startGuide(t) {
     const g = t.guide;
-    M.guided = true;
     clearTimers();
-    const opts = $('options');
-    opts.classList.add('guided');
     const panel = $('guide'); panel.hidden = false;
     $('guide-text').textContent = g.say; $('guide-count').textContent = '';
-    fb('Давай вместе', 'bad');
     if (g.reveal) showHint(t);
     const intro = `${NAME() ? 'Не спеши, ' + NAME() + '. ' : 'Не спеши. '}${g.say}`;
     speak(intro, 'now');
+    if (g.mode === 'show') {
+      // только показ и объяснение: варианты остаются активными — ребёнок может ответить сразу,
+      // как только увидел подсказку (подписи фигур, обводка ракеты, цифры на часах)
+      showHint(t);
+      fb('Смотри подсказку и попробуй ещё раз', 'bad');
+      armRepeat(t);
+      return;
+    }
+    M.guided = true;
+    $('options').classList.add('guided');
+    fb('Давай вместе', 'bad');
     switch (g.mode) {
       case 'count': guideCount(t, g, false); break;
       case 'sum': guideCount(t, g, true); break;
       case 'share': guideShare(t, g); break;
       case 'walk': guideWalk(t, g); break;
-      case 'replay': guideReplay(t, g); break;
-      default: // 'show': только показ и объяснение
-        showHint(t);
-        afterSpeech(() => endGuide(t), 15000);
+      default: guideReplay(t, g);
     }
   }
   function endGuide(t, keepPanel) {
@@ -686,8 +709,9 @@
   }
   function guideDone(t, g) {
     $('guide-text').textContent = g.doneSay || '';
+    if (t.hint && t.hint.type === 'ordinal-numbers') showHint(t); // «который по счёту»: номера на ракетах с нужной стороны
     later(() => speak(g.doneSay, 'now'), 350);
-    afterSpeech(() => endGuide(t), 15000);
+    later(() => endGuide(t), 1000);
   }
   function targetsOf(sel) { return [...document.querySelectorAll('#game ' + sel.split(',').map(s => s.trim()).join(', #game '))]; }
   const groupOf = el => el.closest('.objs, .dots, .glabel, .die, .tenframe') || el.parentElement;
@@ -792,16 +816,18 @@
   // Память: показать ещё раз
   function guideReplay(t, g) {
     const d = t.display;
+    const alive = () => M && M.tasks[M.idx] === t && M.guided === true;
     if (d.type === 'memory') {
       const items = $('stage').querySelectorAll('.memo .obj');
       const el = items[d.hideIdx];
       afterSpeech(() => {
+        if (!alive()) return;
         if (el) { el.classList.remove('gone'); el.textContent = d.items[d.hideIdx]; el.classList.add('pop'); }
-        later(() => hideMemoryItem(t, () => { M.guided = 'done'; guideDone(t, g); }), d.showMs);
-      }, 8000);
+        later(() => hideMemoryItem(t, () => { if (!alive()) return; M.guided = 'done'; guideDone(t, g); }), d.showMs);
+      }, 3500);
     } else if (d.type === 'simon') {
       M.picked = [];
-      afterSpeech(() => playSimon(t, d.stepMs + 250, () => { M.guided = 'done'; guideDone(t, g); }), 8000);
+      afterSpeech(() => { if (alive()) playSimon(t, d.stepMs + 250, () => { if (!alive()) return; M.guided = 'done'; guideDone(t, g); }); }, 3500);
     } else { M.guided = 'done'; guideDone(t, g); }
   }
 
@@ -951,7 +977,7 @@
     later(() => {
       M.idx++;
       if (M.idx < M.tasks.length) renderTask(); else finishMission();
-    }, (delay || (stars > 0 ? 1100 : 2000)) + extra);
+    }, (delay || (stars === 2 ? 1100 : stars === 1 ? 1700 : 2000)) + extra);
   }
 
   function recordStat(skill, stars, seconds) {
@@ -1150,7 +1176,7 @@
   $('btn-go').addEventListener('click', () => { Speech.stop(); SFX.launch(); beginTasks(); });
   $('btn-intro-back').addEventListener('click', () => { Speech.stop(); M = null; renderHome(); show('home'); });
   $('btn-quit').addEventListener('click', () => { Speech.stop(); clearTimers(); M = null; renderHome(); show('home'); });
-  $('btn-speak').addEventListener('click', () => { if (M) { const t = M.tasks[M.idx]; speak(M.guided ? ($('guide-text').textContent || t.say) : t.lesson && !$('lesson').hidden ? T.LESSONS[t.skill] : t.say, 'now'); } });
+  $('btn-speak').addEventListener('click', () => { if (M) { const t = M.tasks[M.idx]; speak(!$('guide').hidden ? ($('guide-text').textContent || t.say) : t.lesson && !$('lesson').hidden ? T.LESSONS[t.skill] : t.say, 'now'); } });
   $('btn-next').addEventListener('click', () => { SFX.tap(); startMission(currentPlanet()); });
   $('btn-home').addEventListener('click', () => { renderHome(); show('home'); });
   $('btn-album').addEventListener('click', () => { SFX.tap(); renderAlbum(); show('album'); });
