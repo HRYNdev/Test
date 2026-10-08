@@ -110,13 +110,14 @@
   for (const o of OBJECTS) EMOJI_NAME[o.e] = o.one;
   const HEROES = [{ n: 'Зум', g: 'Зума', v: 'подарил' }, { n: 'Бип', g: 'Бипа', v: 'подарил' }, { n: 'Ника', g: 'Ники', v: 'подарила' }, { n: 'Тим', g: 'Тима', v: 'подарил' }, { n: 'Кроха', g: 'Крохи', v: 'подарила' }];
 
+  // g — род существительного-названия фигуры: m — мужской, f — женский, n — средний
   const SHAPES = [
-    { id: 'circle',   name: 'круг',        acc: 'круг',        pl: 'круги',        gen: 'кругов',        part: 'круглый иллюминатор' },
-    { id: 'square',   name: 'квадрат',     acc: 'квадрат',     pl: 'квадраты',     gen: 'квадратов',     part: 'квадратный люк' },
-    { id: 'triangle', name: 'треугольник', acc: 'треугольник', pl: 'треугольники', gen: 'треугольников', part: 'треугольное крыло' },
-    { id: 'star',     name: 'звезда',      acc: 'звезду',      pl: 'звёзды',       gen: 'звёзд',         part: 'звёздный фонарик' },
-    { id: 'heart',    name: 'сердечко',    acc: 'сердечко',    pl: 'сердечки',     gen: 'сердечек',      part: 'сердечко-датчик' },
-    { id: 'diamond',  name: 'ромб',        acc: 'ромб',        pl: 'ромбы',        gen: 'ромбов',        part: 'ромбик-антенна' },
+    { id: 'circle',   name: 'круг',        acc: 'круг',        pl: 'круги',        gen: 'кругов',        part: 'круглый иллюминатор', g: 'm' },
+    { id: 'square',   name: 'квадрат',     acc: 'квадрат',     pl: 'квадраты',     gen: 'квадратов',     part: 'квадратный люк', g: 'm' },
+    { id: 'triangle', name: 'треугольник', acc: 'треугольник', pl: 'треугольники', gen: 'треугольников', part: 'треугольное крыло', g: 'm' },
+    { id: 'star',     name: 'звезда',      acc: 'звезду',      pl: 'звёзды',       gen: 'звёзд',         part: 'звёздный фонарик', g: 'f' },
+    { id: 'heart',    name: 'сердечко',    acc: 'сердечко',    pl: 'сердечки',     gen: 'сердечек',      part: 'сердечко-датчик', g: 'n' },
+    { id: 'diamond',  name: 'ромб',        acc: 'ромб',        pl: 'ромбы',        gen: 'ромбов',        part: 'ромбик-антенна', g: 'm' },
   ];
   const CORNER_SHAPES = [
     { id: 'triangle', name: 'треугольник', corners: 3 }, { id: 'square', name: 'квадрат', corners: 4 },
@@ -133,12 +134,12 @@
   const ORDINALS_F = ['', 'первую', 'вторую', 'третью', 'четвёртую', 'пятую', 'шестую', 'седьмую', 'восьмую'];
   const ORDINALS_F_NOM = ['', 'первая', 'вторая', 'третья', 'четвёртая', 'пятая', 'шестая', 'седьмая', 'восьмая'];
   const COLORS = [
-    { id: '#ff5c8a', name: 'розовый',    nameF: 'розовая' },
-    { id: '#ffd23f', name: 'жёлтый',     nameF: 'жёлтая' },
-    { id: '#3ddc97', name: 'зелёный',    nameF: 'зелёная' },
-    { id: '#4cc9f0', name: 'голубой',    nameF: 'голубая' },
-    { id: '#b388ff', name: 'фиолетовый', nameF: 'фиолетовая' },
-    { id: '#ff8c42', name: 'оранжевый',  nameF: 'оранжевая' },
+    { id: '#ff5c8a', name: 'розовый',    nameF: 'розовая',    nameN: 'розовое' },
+    { id: '#ffd23f', name: 'жёлтый',     nameF: 'жёлтая',     nameN: 'жёлтое' },
+    { id: '#3ddc97', name: 'зелёный',    nameF: 'зелёная',    nameN: 'зелёное' },
+    { id: '#4cc9f0', name: 'голубой',    nameF: 'голубая',    nameN: 'голубое' },
+    { id: '#b388ff', name: 'фиолетовый', nameF: 'фиолетовая', nameN: 'фиолетовое' },
+    { id: '#ff8c42', name: 'оранжевый',  nameF: 'оранжевая',  nameN: 'оранжевое' },
   ];
 
   // ---------- утилиты ----------
@@ -537,7 +538,7 @@
     if (k === 4) distractors.push({ shape: pick(SHAPES.filter(s => s.id !== shape.id)).id, color: pick(COLORS.filter(c => c.id !== color.id)).id });
     const opts = shuffle([{ shape: shape.id, color: color.id, ok: true }, ...distractors]).map((o, i) => ({ label: String(i), value: i, shape: o.shape, color: o.color, ok: !!o.ok }));
     const answer = opts.findIndex(o => o.ok);
-    const colorName = shape.id === 'star' || shape.id === 'heart' ? color.nameF : color.name;
+    const colorName = { m: color.name, f: color.nameF, n: color.nameN }[shape.g];
     return {
       skill: 'same', kind: 'choice', scene: 'repair',
       prompt: 'Найди такую же деталь',
