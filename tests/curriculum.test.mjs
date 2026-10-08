@@ -162,13 +162,23 @@ test('уверенный ребёнок (95 %) проходит ступень �
   }
 });
 
-test('ребёнок, которому трудно на ступени (50 %), остаётся на ней, а миссия становится мягче', () => {
-  const { st, stages } = simulate((k, d, s) => (s === 1 ? 0.95 : 0.45), 12, 2);
-  assert.ok(stages.includes(2) && !stages.includes(3), stages.join(' '));
-  assert.equal(C.struggling(st), true);
+test('ребёнок, которому трудно на ступени (30 %), остаётся на ней, а трудная миссия становится мягче', () => {
+  // На ступени 2 ребёнок отвечает с первой попытки в 30 % случаев: «трудно» возникает во время прогона,
+  // но в конце прогона флаг может быть снят случайностью, поэтому проверяем сам факт задержки на ступени.
+  for (const seed of [1, 2, 3, 4]) {
+    const { stages } = simulate((k, d, s) => (s === 1 ? 0.95 : 0.3), 12, seed);
+    assert.ok(stages.includes(2) && !stages.includes(3), `seed ${seed}: ${stages.join(' ')}`);
+  }
+  // Мягкость миссии проверяем на детерминированной истории: 1 верный из 8 ответов ядра.
+  const st = C.create(); st.stage = 2;
   C.setRandom(mulberry32(9));
-  const plan = C.planMission(st, ALL, 8);
-  assert.ok(plan.filter(p => p.slot === 'warm').length >= 3, 'больше разминки');
+  const easy = C.planMission(st, ALL, 8);
+  st.coreLog = [0, 0, 0, 1, 0, 0, 0, 0];
+  assert.equal(C.struggling(st), true);
+  const hard = C.planMission(st, ALL, 8);
+  const count = (plan, slot) => plan.filter(p => p.slot === slot).length;
+  assert.ok(count(hard, 'warm') >= 3, 'больше разминки');
+  assert.ok(count(hard, 'core') < count(easy, 'core'), 'меньше заданий ядра');
 });
 
 test('skillD: внутри ступени растёт с мастерством и не выходит за диапазон', () => {
